@@ -162,7 +162,7 @@ public:
 	idVec3					GetEyePosition( void ) const;
 	virtual void			GetViewPos( idVec3 &origin, idMat3 &axis ) const;
 	void					SetFOV( float fov );
-	bool					CheckFOV( const idVec3 &pos ) const;
+	bool					CheckFOV( const idVec3 &pos, float targetFovDot ) const; //ff1.3 - targetFovDot added
 	bool					CanSee( idEntity *ent, bool useFOV ) const;
 	bool					PointVisible( const idVec3 &point ) const;
 	virtual void			GetAIAimTargets( const idVec3 &lastSightPos, idVec3 &headPos, idVec3 &chestPos );
@@ -217,6 +217,11 @@ public:
 	idEntity*				GetHeadEntity() { return head.GetEntity(); };
 #endif
 
+	//ff1.3 start
+	idAFEntity_Vehicle *	GetCurrentVehicle( void ) const;
+	bool					GetInsideBodyAimTarget( idVec3 &pos );
+	//ff1.3 end
+
 protected:
 	friend class			idAnimState;
 
@@ -266,7 +271,7 @@ protected:
 
 	bool					allowPain;
 	bool					allowEyeFocus;
-	bool					finalBoss;
+	//bool					finalBoss; //ff1.3 - removed
 
 	int						painTime;
 
@@ -275,6 +280,13 @@ protected:
 #ifdef _D3XP
 	int						damageCap;
 #endif
+
+	//ff1.3 start
+	idAFEntity_Vehicle *	currentVehicle;
+
+	virtual bool			IgnoreDamage( idEntity *inflictor, idEntity *attacker, const idDict *damageDef, float *additionalDamageScale );
+	//ff1.3 end
+
 
 	virtual void			Gib( const idVec3 &dir, const char *damageDefName );
 
@@ -339,6 +351,17 @@ private:
 	void					Event_GetWaitState();
 
 #endif
+	//ff1.3 start
+	void					Event_GetTeam( void );
+	void					Event_HasDamageFx( void );
+	void					Event_GetNextTalkAfterPainTime( void );
+	//ff1.3 end
 };
+
+//ff1.3 start
+ID_INLINE idAFEntity_Vehicle * idActor::GetCurrentVehicle( void ) const {
+	return currentVehicle;
+}
+//ff1.3 end
 
 #endif /* !__GAME_ACTOR_H__ */

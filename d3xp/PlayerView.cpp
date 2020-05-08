@@ -60,7 +60,8 @@ idPlayerView::idPlayerView() {
 	dvMaterial = declManager->FindMaterial( "_scratch" );
 	tunnelMaterial = declManager->FindMaterial( "textures/decals/tunnel" );
 	armorMaterial = declManager->FindMaterial( "armorViewEffect" );
-	berserkMaterial = declManager->FindMaterial( "textures/decals/berserk" );
+	invulnMaterial = declManager->FindMaterial( "textures/decals/invulnvision" );
+	speedMaterial = declManager->FindMaterial( "textures/decals/speedvision" );
 	irGogglesMaterial = declManager->FindMaterial( "textures/decals/irblend" );
 	bloodSprayMaterial = declManager->FindMaterial( "textures/decals/bloodspray" );
 	bfgMaterial = declManager->FindMaterial( "textures/decals/bfgvision" );
@@ -121,7 +122,8 @@ void idPlayerView::Save( idSaveGame *savefile ) const {
 
 	savefile->WriteMaterial( tunnelMaterial );
 	savefile->WriteMaterial( armorMaterial );
-	savefile->WriteMaterial( berserkMaterial );
+	savefile->WriteMaterial( invulnMaterial );
+	savefile->WriteMaterial( speedMaterial );
 	savefile->WriteMaterial( irGogglesMaterial );
 	savefile->WriteMaterial( bloodSprayMaterial );
 	savefile->WriteMaterial( bfgMaterial );
@@ -178,7 +180,8 @@ void idPlayerView::Restore( idRestoreGame *savefile ) {
 
 	savefile->ReadMaterial( tunnelMaterial );
 	savefile->ReadMaterial( armorMaterial );
-	savefile->ReadMaterial( berserkMaterial );
+	savefile->ReadMaterial( invulnMaterial );
+	savefile->ReadMaterial( speedMaterial );
 	savefile->ReadMaterial( irGogglesMaterial );
 	savefile->ReadMaterial( bloodSprayMaterial );
 	savefile->ReadMaterial( bfgMaterial );
@@ -529,7 +532,8 @@ void idPlayerView::SingleView( idUserInterface *hud, const renderView_t *view ) 
 #endif
 
 	// draw screen blobs
-	if ( !pm_thirdPerson.GetBool() && !g_skipViewEffects.GetBool() ) {
+	//was: if ( !pm_thirdPerson.GetBool() && !g_skipViewEffects.GetBool() ) { //ivan
+	if ( /*!player->UseThirdPersonCamera() &&*/ !g_skipViewEffects.GetBool() ) { //ivan
 		for ( int i = 0 ; i < MAX_SCREEN_BLOBS ; i++ ) {
 			screenBlob_t	*blob = &screenBlobs[i];
 			if ( blob->finishTime <= gameLocal.slow.time ) {
@@ -583,6 +587,18 @@ void idPlayerView::SingleView( idUserInterface *hud, const renderView_t *view ) 
 			renderSystem->DrawStretchPic( 0.0f, 0.0f, 640.0f, 480.0f, 0.0f, 0.0f, 1.0f, 1.0f, bfgMaterial );
 		}
 
+        //ff1.3 start
+        if ( !gameLocal.inCinematic ) {
+            if ( player->PowerUpActive( INVULNERABILITY ) ) {
+                renderSystem->SetColor4( 1.0f, 1.0f, 1.0f, 1.0f );
+                renderSystem->DrawStretchPic( 0.0f, 0.0f, 640.0f, 480.0f, 0.0f, 0.0f, 1.0f, 1.0f, invulnMaterial );
+            }
+            if ( player->PowerUpActive( ADRENALINE ) ) {
+                renderSystem->SetColor4( 1.0f, 1.0f, 1.0f, 1.0f );
+                renderSystem->DrawStretchPic( 0.0f, 0.0f, 640.0f, 480.0f, 0.0f, 0.0f, 1.0f, 1.0f, speedMaterial );
+            }
+        }
+        //ff1.3 end
 	}
 
 	// test a single material drawn over everything
@@ -815,7 +831,7 @@ void FxFader::Restore( idRestoreGame *savefile ) {
 
 /*
 ==================
-FullscreenFX_Helltime::Save
+FullscreenFX::Save
 ==================
 */
 void FullscreenFX::Save( idSaveGame *savefile ) {
@@ -824,13 +840,15 @@ void FullscreenFX::Save( idSaveGame *savefile ) {
 
 /*
 ==================
-FullscreenFX_Helltime::Restore
+FullscreenFX::Restore
 ==================
 */
 void FullscreenFX::Restore( idRestoreGame *savefile ) {
 	fader.Restore( savefile );
 }
 
+//ff1.3 start
+#ifdef D3XP_HELLTIME
 
 /*
 ==================
@@ -978,9 +996,75 @@ void FullscreenFX_Helltime::Restore( idRestoreGame *savefile ) {
 	clearAccumBuffer = true;
 }
 
+#else
 
+/*
+==================
+FullscreenFX_Helltime::Initialize
+==================
+*/
+void FullscreenFX_Helltime::Initialize() {
+	material = declManager->FindMaterial( "textures/decals/bloodyfilm1" );
+}
 
+/*
+==================
+FullscreenFX_Helltime::Active
+==================
+*/
+bool FullscreenFX_Helltime::Active() {
+	idPlayer *player;
 
+	player = fxman->GetPlayer();
+
+	if ( player->PowerUpActive( HELLTIME ) ) {
+		return true;
+	}
+
+	return false;
+}
+
+/*
+==================
+FullscreenFX_Helltime::HighQuality
+==================
+*/
+void FullscreenFX_Helltime::HighQuality() {
+	renderSystem->SetColor4( 1, 1, 1, 1 );
+	renderSystem->DrawStretchPic( 0.0f, 0.0f, 640.0f, 480.0f, 0.0f, 0.0f, 1.0f, 1.0f, material );
+}
+
+#endif
+
+/*
+==================
+FullscreenFX_WeaponZoom::Initialize
+==================
+*/
+void FullscreenFX_WeaponZoom::Initialize() {
+	material = declManager->FindMaterial( "textures/bloom/glow" );
+}
+
+/*
+==================
+FullscreenFX_WeaponZoom::Active
+==================
+*/
+bool FullscreenFX_WeaponZoom::Active() {
+	return !gameLocal.inCinematic && fxman->GetPlayer()->IsAdvancedWeaponZooming();
+}
+
+/*
+==================
+FullscreenFX_WeaponZoom::HighQuality
+==================
+*/
+void FullscreenFX_WeaponZoom::HighQuality() {
+	renderSystem->SetColor4( 1, 1, 1, 1 );
+	renderSystem->DrawStretchPic( 0.0f, 0.0f, 640.0f, 480.0f, 0.0f, 0.0f, 1.0f, 1.0f, material );
+}
+
+//ff1.3 end
 
 /*
 ==================
@@ -1447,12 +1531,15 @@ void FullscreenFX_InfluenceVision::HighQuality() {
 	if ( player->GetInfluenceMaterial() ) {
 		renderSystem->SetColor4( 1.0f, 1.0f, 1.0f, pct );
 		renderSystem->DrawStretchPic( 0.0f, 0.0f, 640.0f, 480.0f, 0.0f, 0.0f, 1.0f, 1.0f, player->GetInfluenceMaterial() );
-	} else if ( player->GetInfluenceEntity() == NULL ) {
+	}
+	/*
+	else if ( player->GetInfluenceEntity() == NULL ) {
 		return;
 	} else {
 //		int offset =  25 + sinf( gameLocal.slow.time );
 //		DoubleVision( hud, view, pct * offset );
 	}
+	*/
 }
 
 
@@ -1466,7 +1553,7 @@ FullscreenFX_Bloom::Initialize
 void FullscreenFX_Bloom::Initialize() {
 	drawMaterial		= declManager->FindMaterial( "textures/smf/bloom2/draw" );
 	initMaterial		= declManager->FindMaterial( "textures/smf/bloom2/init" );
-	currentMaterial		= declManager->FindMaterial( "textures/smf/bloom2/currentMaterial" );
+	//currentMaterial		= declManager->FindMaterial( "textures/smf/bloom2/currentMaterial" ); //ff1.3 - remove warning: missing material
 
 	currentIntensity	= 0;
 	targetIntensity		= 0;
@@ -1658,6 +1745,11 @@ void FullscreenFXManager::CreateFX( idStr name, idStr fxtype, int fade ) {
 	else if ( fxtype == "bloom" ) {
 		pfx = new FullscreenFX_Bloom;
 	}
+	//ff1.3 start
+	else if ( fxtype == "weaponzoom" ) {
+		pfx = new FullscreenFX_WeaponZoom;
+	}
+	//ff1.3 end
 	else {
 		assert( 0 );
 	}
@@ -1689,6 +1781,7 @@ void FullscreenFXManager::Initialize( idPlayerView *pv ) {
 	CreateFX( "multiplayer", "multiplayer", 1000 );
 	CreateFX( "influencevision", "influencevision", 1000 );
 	CreateFX( "bloom", "bloom", 0 );
+	CreateFX( "weaponzoom", "weaponzoom", 0 ); //ff1.3
 
 	// pre-cache the texture grab so we dont hitch
 	renderSystem->CropRenderSize( 512, 512, true );

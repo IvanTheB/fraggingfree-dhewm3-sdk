@@ -168,13 +168,31 @@ const idEventDef AI_GetReachableEntityPosition( "getReachableEntityPosition", "e
 #ifdef _D3XP
 const idEventDef AI_MoveToPositionDirect( "moveToPositionDirect", "v" );
 const idEventDef AI_AvoidObstacles( "avoidObstacles", "d" );
-const idEventDef AI_TriggerFX( "triggerFX", "ss" );
+//const idEventDef AI_TriggerFX( "triggerFX", "ss" ); //ff1.1 - moved to idAnimatedEntity
 const idEventDef AI_StartEmitter( "startEmitter", "sss", 'e' );
 const idEventDef AI_GetEmitter( "getEmitter", "s", 'e' );
 const idEventDef AI_StopEmitter( "stopEmitter", "s" );
 
 
 #endif
+//ff1.3 start
+//const idEventDef AI_AllowSlowmoMode( "allowSlowmoMode", "d" );
+const idEventDef AI_EnemyIsDriving( "enemyIsDriving", NULL, 'd' );
+const idEventDef AI_EnemyIsPlayer( "enemyIsPlayer", NULL, 'd' );
+const idEventDef AI_Disintegrate( "disintegrate" );
+const idEventDef AI_CanHitNotVisibleEnemyFromAnim( "canHitNotVisibleEnemyFromAnim", "s", 'd' );
+const idEventDef AI_SetTeam( "setTeam", "d" );
+const idEventDef AI_SetActivateTargetsOnDeath( "setActivateTargetsOnDeath", "d" );
+const idEventDef AI_RestoreTeam( "restoreTeam" );
+const idEventDef AI_StartRiding( "startRiding", "ed" );
+//const idEventDef AI_SetTemporaryTeam( "setTemporaryTeam", "dd" );
+//const idEventDef AI_ResetTemporaryTeam( "<resetTemporaryTeam>" );
+const idEventDef AI_EnemyInFov( "enemyInFov", NULL, 'd' );
+const idEventDef AI_EnemyInFovDegrees( "enemyInFovDegrees", "f", 'd' );
+const idEventDef AI_HeardSuspiciousSound( "heardSuspiciousSound", "ffff", 'e' );
+const idEventDef AI_EnemyInSuspiciousPosition( "enemyInSuspiciousPosition", "ffff", 'f' );
+const idEventDef AI_NoTarget( "noTarget", "d" );
+//ff1.3 end
 
 CLASS_DECLARATION( idActor, idAI )
 	EVENT( EV_Activate,							idAI::Event_Activate )
@@ -311,12 +329,43 @@ CLASS_DECLARATION( idActor, idAI )
 #ifdef _D3XP
 	EVENT( AI_MoveToPositionDirect,				idAI::Event_MoveToPositionDirect )
 	EVENT( AI_AvoidObstacles,					idAI::Event_AvoidObstacles )
-	EVENT( AI_TriggerFX,						idAI::Event_TriggerFX )
+	//EVENT( AI_TriggerFX,						idAI::Event_TriggerFX ) //ff1.1 - moved to idAnimatedEntity
 	EVENT( AI_StartEmitter,						idAI::Event_StartEmitter )
 	EVENT( AI_GetEmitter,						idAI::Event_GetEmitter )
 	EVENT( AI_StopEmitter,						idAI::Event_StopEmitter )
 #endif
+	//ff1.3 start
+	EVENT( EV_SetSkin,							idAI::Event_SetSkin )
+	EVENT( AI_EnemyIsDriving,					idAI::Event_EnemyIsDriving )
+	EVENT( AI_EnemyIsPlayer,					idAI::Event_EnemyIsPlayer )
+	EVENT( AI_Disintegrate,						idAI::Event_Disintegrate )
+	EVENT( AI_CanHitNotVisibleEnemyFromAnim,	idAI::Event_CanHitNotVisibleEnemyFromAnim )
+	EVENT( AI_SetTeam,							idAI::Event_SetTeam )
+	EVENT( AI_SetActivateTargetsOnDeath,		idAI::Event_SetActivateTargetsOnDeath )
+	EVENT( AI_RestoreTeam,						idAI::Event_RestoreTeam )
+	//EVENT( AI_SetTemporaryTeam,					idAI::Event_SetTemporaryTeam )
+	//EVENT( AI_ResetTemporaryTeam,				idAI::Event_ResetTemporaryTeam )
+	EVENT( AI_EnemyInFov,						idAI::Event_EnemyInFov )
+	EVENT( AI_EnemyInFovDegrees,				idAI::Event_EnemyInFovDegrees )
+	EVENT( AI_HeardSuspiciousSound,				idAI::Event_HeardSuspiciousSound )
+	EVENT( AI_EnemyInSuspiciousPosition,		idAI::Event_EnemyInSuspiciousPosition )
+	EVENT( AI_StartRiding,						idAI::Event_StartRiding )
+	EVENT( AI_NoTarget,							idAI::Event_NoTarget )
+	//ff1.3 end
 END_CLASS
+
+
+//ff1.3 start
+/*
+=====================
+idAI::Event_AllowSlowmoMode
+=====================
+
+void idAI::Event_AllowSlowmoMode( int allow ) {
+	//slowmoAllowed = ( allow != 0 );
+}
+*/
+//ff1.3 end
 
 /*
 =====================
@@ -333,7 +382,10 @@ idAI::Event_Touch
 =====================
 */
 void idAI::Event_Touch( idEntity *other, trace_t *trace ) {
-	if ( !enemy.GetEntity() && !other->fl.notarget && ( ReactionTo( other ) & ATTACK_ON_ACTIVATE ) ) {
+	//gameLocal.Printf("idAI::Event_Touch %s", other->GetName() ); //seems like it's not invoked for other AI
+
+	//TODO: add vehicle check? Probably not necessary as long as vehicles give damage
+	if ( !enemy.GetEntity() && !other->fl.notarget && other->IsType( idActor::Type ) && ( ReactionTo( static_cast<const idActor *>( other ) ) & ATTACK_ON_ACTIVATE ) ) {
 		Activate( other );
 	}
 	AI_PUSHED = true;
@@ -347,22 +399,29 @@ idAI::Event_FindEnemy
 void idAI::Event_FindEnemy( int useFOV ) {
 	int			i;
 	idEntity	*ent;
+	idPlayer	*player;
 	idActor		*actor;
 
 	if ( gameLocal.InPlayerPVS( this ) ) {
 		for ( i = 0; i < gameLocal.numClients ; i++ ) {
 			ent = gameLocal.entities[ i ];
 
-			if ( !ent || !ent->IsType( idActor::Type ) ) {
+			if ( !ent || !ent->IsType( idPlayer::Type ) ) {
 				continue;
 			}
 
-			actor = static_cast<idActor *>( ent );
+			player = static_cast<idPlayer *>( ent );
+
+			actor = player->GetCurrentRiddenAI();
+			if( !actor ){
+				actor = player;
+			}
+
 			if ( ( actor->health <= 0 ) || !( ReactionTo( actor ) & ATTACK_ON_SIGHT ) ) {
 				continue;
 			}
 
-			if ( CanSee( actor, useFOV != 0 ) ) {
+			if ( actor->GetCurrentVehicle() ? CanSee( actor->GetCurrentVehicle(), useFOV != 0 ) : CanSee( actor, useFOV != 0 ) ) {
 				idThread::ReturnEntity( actor );
 				return;
 			}
@@ -391,6 +450,7 @@ void idAI::Event_FindEnemyAI( int useFOV ) {
 	bestDist = idMath::INFINITY;
 	bestEnemy = NULL;
 	for ( ent = gameLocal.activeEntities.Next(); ent != NULL; ent = ent->activeNode.Next() ) {
+		//TODO: add support for actors driving vehicles? Probably not useful since this is only used by allies.
 		if ( ent->fl.hidden || ent->fl.isDormant || !ent->IsType( idActor::Type ) ) {
 			continue;
 		}
@@ -411,6 +471,35 @@ void idAI::Event_FindEnemyAI( int useFOV ) {
 			bestEnemy = actor;
 		}
 	}
+
+	//ff1.3 start
+	if ( !bestEnemy && team == 0 ) { //player team coop
+		actor = gameLocal.lastAICoopEnemy.GetEntity();
+		if ( actor
+			&& !actor->fl.hidden
+			&& !actor->fl.isDormant
+			&& (actor->health > 0)
+			&& ( ReactionTo( actor ) & ATTACK_ON_SIGHT )
+			&& gameLocal.pvs.InCurrentPVS( pvs, actor->GetPVSAreas(), actor->GetNumPVSAreas() )
+		) {
+			/*
+			delta = physicsObj.GetOrigin() - actor->GetPhysics()->GetOrigin();
+			dist = delta.LengthSqr();
+			if ( ( dist < bestDist ) && CanSee( actor, useFOV != 0 ) ) {
+				//bestDist = dist;
+				bestEnemy = actor;
+				gameLocal.Printf("Enemy found by coop %s\n", bestEnemy->GetName());
+			}
+			*/
+			if ( (useFOV != 0) && !CanSee( actor, true ) ) {
+				gameLocal.Printf("%s cannot see coop target %s\n", GetName(), actor->GetName() );
+			} else {
+				bestEnemy = actor;
+			}
+			//gameLocal.Printf("Enemy found by coop %s\n", bestEnemy->GetName());
+		}
+	}
+	//ff1.3 end
 
 	gameLocal.pvs.FreeCurrentPVS( pvs );
 	idThread::ReturnEntity( bestEnemy );
@@ -479,11 +568,28 @@ void idAI::Event_ClosestReachableEnemyOfEntity( idEntity *team_mate ) {
 	int		enemyAreaNum;
 	aasPath_t path;
 
+    //ff1.3 start
+	if ( !team_mate ) {
+        idThread::ReturnEntity( NULL );
+        return;
+    }
+    //ff1.3 end
+
 	if ( !team_mate->IsType( idActor::Type ) ) {
 		gameLocal.Error( "Entity '%s' is not an AI character or player", team_mate->GetName() );
 	}
 
 	actor = static_cast<idActor *>( team_mate );
+
+	//ff1.3 start: if "team_mate" is the player and he is riding an AI, use AI enemies
+	if ( team_mate->IsType( idPlayer::Type ) ) {
+		ent = static_cast<idPlayer *>( team_mate )->GetCurrentRiddenAI();
+		if ( ent ) {
+			actor = ent;
+			ent = NULL;
+		}
+	}
+	//ff1.3 end
 
 	const idVec3 &origin = physicsObj.GetOrigin();
 	areaNum = PointReachableAreaNum( origin );
@@ -491,17 +597,33 @@ void idAI::Event_ClosestReachableEnemyOfEntity( idEntity *team_mate ) {
 	bestDistSquared = idMath::INFINITY;
 	bestEnt = NULL;
 	for( ent = actor->enemyList.Next(); ent != NULL; ent = ent->enemyNode.Next() ) {
-		if ( ent->fl.hidden ) {
-			continue;
-		}
-		delta = ent->GetPhysics()->GetOrigin() - origin;
-		distSquared = delta.LengthSqr();
-		if ( distSquared < bestDistSquared ) {
-			const idVec3 &enemyPos = ent->GetPhysics()->GetOrigin();
-			enemyAreaNum = PointReachableAreaNum( enemyPos );
-			if ( ( areaNum != 0 ) && PathToGoal( path, areaNum, origin, enemyAreaNum, enemyPos ) ) {
-				bestEnt = ent;
-				bestDistSquared = distSquared;
+		if( ent->GetCurrentVehicle() ){
+			if ( ent->GetCurrentVehicle()->fl.hidden ) {
+				continue;
+			}
+			delta = ent->GetCurrentVehicle()->GetPhysics()->GetOrigin() - origin;
+			distSquared = delta.LengthSqr();
+			if ( distSquared < bestDistSquared ) {
+				const idVec3 &enemyPos= ent->GetCurrentVehicle()->GetPhysics()->GetOrigin();
+				enemyAreaNum = PointReachableAreaNum( enemyPos );
+				if ( ( areaNum != 0 ) && PathToGoal( path, areaNum, origin, enemyAreaNum, enemyPos ) ) {
+					bestEnt = ent;
+					bestDistSquared = distSquared;
+				}
+			}
+		}else{
+			if ( ent->fl.hidden || ent->fl.notarget ) {
+				continue;
+			}
+			delta = ent->GetPhysics()->GetOrigin() - origin;
+			distSquared = delta.LengthSqr();
+			if ( distSquared < bestDistSquared ) {
+				const idVec3 &enemyPos= ent->GetPhysics()->GetOrigin();
+				enemyAreaNum = PointReachableAreaNum( enemyPos );
+				if ( ( areaNum != 0 ) && PathToGoal( path, areaNum, origin, enemyAreaNum, enemyPos ) ) {
+					bestEnt = ent;
+					bestDistSquared = distSquared;
+				}
 			}
 		}
 	}
@@ -518,7 +640,10 @@ void idAI::Event_HeardSound( int ignore_team ) {
 	// check if we heard any sounds in the last frame
 	idActor	*actor = gameLocal.GetAlertEntity();
 	if ( actor && ( !ignore_team || ( ReactionTo( actor ) & ATTACK_ON_SIGHT ) ) && gameLocal.InPlayerPVS( this ) ) {
-		idVec3 pos = actor->GetPhysics()->GetOrigin();
+		//ff1.3 start
+		//was: idVec3 pos = actor->GetPhysics()->GetOrigin();
+		idVec3 pos = gameLocal.GetAlertPos(); //check projectile or fire position, not owner position
+		//ff1.3 end
 		idVec3 org = physicsObj.GetOrigin();
 		float dist = ( pos - org ).LengthSqr();
 		if ( dist < Square( AI_HEARING_RANGE ) ) {
@@ -600,8 +725,12 @@ idAI::Event_AttackMissile
 */
 void idAI::Event_AttackMissile( const char *jointname ) {
 	idProjectile *proj;
-
-	proj = LaunchProjectile( jointname, enemy.GetEntity(), true );
+	idActor *enemyEnt = enemy.GetEntity();
+	if( enemyEnt && enemyEnt->GetCurrentVehicle() ){
+		proj = LaunchProjectile( jointname, enemyEnt->GetCurrentVehicle(), true );
+	}else{
+		proj = LaunchProjectile( jointname, enemyEnt, true );
+	}
 	idThread::ReturnEntity( proj );
 }
 
@@ -618,6 +747,8 @@ void idAI::Event_FireMissileAtTarget( const char *jointname, const char *targetn
 	if ( !aent ) {
 		gameLocal.Warning( "Entity '%s' not found for 'fireMissileAtTarget'", targetname );
 	}
+
+	//TODO: vehicle support
 
 	proj = LaunchProjectile( jointname, aent, false );
 	idThread::ReturnEntity( proj );
@@ -670,7 +801,8 @@ void idAI::Event_LaunchMissile( const idVec3 &org, const idAngles &ang ) {
 
 	// launch the projectile
 	idThread::ReturnEntity( projectile.GetEntity() );
-	projectile.GetEntity()->Launch( tr.endpos, axis[ 0 ], vec3_origin );
+	//ff1.3 was: projectile.GetEntity()->Launch( tr.endpos, axis[ 0 ], vec3_origin );
+	projectile.GetEntity()->Launch( tr.endpos, axis[ 0 ], vec3_origin, 0.0f, 1.0f, projectileDamageScale );
 	projectile = NULL;
 
 	TriggerWeaponEffects( tr.endpos );
@@ -728,7 +860,8 @@ void idAI::Event_LaunchProjectile( const char *entityDefName ) {
 
 	GetAimDir( muzzle, enemy.GetEntity(), this, dir );
 
-	proj->Launch( muzzle, dir, vec3_origin );
+	//ff1.3 was: proj->Launch( muzzle, dir, vec3_origin );
+	proj->Launch( muzzle, dir, vec3_origin, 0.0f, 1.0f, projectileDamageScale );
 
 	TriggerWeaponEffects( muzzle );
 }
@@ -755,6 +888,7 @@ idAI::Event_DirectDamage
 */
 void idAI::Event_DirectDamage( idEntity *damageTarget, const char *damageDefName ) {
 	DirectDamage( damageDefName, damageTarget );
+	DamageEffect( damageDefName, damageTarget, GetEyePosition(), melee_range ); //ff1.3
 }
 
 /*
@@ -838,8 +972,9 @@ void idAI::Event_MeleeAttackToJoint( const char *jointname, const char *meleeDef
 	gameLocal.clip.TranslationEntities( trace, start, end, NULL, mat3_identity, MASK_SHOT_BOUNDINGBOX, this );
 	if ( trace.fraction < 1.0f ) {
 		hitEnt = gameLocal.GetTraceEntity( trace );
-		if ( hitEnt && hitEnt->IsType( idActor::Type ) ) {
+		if ( hitEnt && (hitEnt->IsType( idActor::Type ) || hitEnt->IsType( idAFEntity_Vehicle::Type )) ) {
 			DirectDamage( meleeDefName, hitEnt );
+			DamageEffect( meleeDefName, hitEnt, GetEyePosition(), (start - end).LengthFast() ); //ff1.3
 			idThread::ReturnInt( true );
 			return;
 		}
@@ -975,6 +1110,17 @@ void idAI::Event_SetHealth( float newHealth ) {
 	} else {
 		AI_DEAD = true;
 	}
+
+	//ff1.3 start - turn on fx for resurrected enemies
+	/*
+	if ( team == 0 ) {
+		SetEmitterVisible( FRIEND_FX_NAME, ( health > 0 ) );
+		gameLocal.Printf("idAI::Event_SetHealth -> SetEmitterVisible true\n");
+	}
+	*/
+	UpdateFriendFx();
+	//ff1.3 end
+
 }
 
 /*
@@ -1069,8 +1215,13 @@ void idAI::Event_MoveToCover( void ) {
 	idActor *enemyEnt = enemy.GetEntity();
 
 	StopMove( MOVE_STATUS_DEST_NOT_FOUND );
-	if ( !enemyEnt || !MoveToCover( enemyEnt, lastVisibleEnemyPos ) ) {
-		return;
+
+	if ( enemyEnt ){
+		if( enemyEnt->GetCurrentVehicle() ){
+			MoveToCover( enemyEnt->GetCurrentVehicle(), lastVisibleEnemyPos );
+		}else{
+			MoveToCover( enemyEnt, lastVisibleEnemyPos );
+		}
 	}
 }
 
@@ -1328,7 +1479,7 @@ void idAI::Event_EnemyInCombatCone( idEntity *ent, int use_current_enemy_locatio
 
 	node = static_cast<idCombatNode *>( ent );
 	if ( use_current_enemy_location ) {
-		const idVec3 &pos = enemyEnt->GetPhysics()->GetOrigin();
+		const idVec3 &pos = (enemyEnt->GetCurrentVehicle()) ? enemyEnt->GetCurrentVehicle()->GetPhysics()->GetOrigin() : enemyEnt->GetPhysics()->GetOrigin();
 		result = node->EntityInView( enemyEnt, pos );
 	} else {
 		result = node->EntityInView( enemyEnt, lastVisibleEnemyPos );
@@ -1361,7 +1512,7 @@ void idAI::Event_GetJumpVelocity( const idVec3 &pos, float speed, float max_heig
 	idVec3 dir;
 	float dist;
 	bool result;
-	idEntity *enemyEnt = enemy.GetEntity();
+	idActor *enemyEnt = enemy.GetEntity();
 
 	if ( !enemyEnt ) {
 		idThread::ReturnVector( vec3_zero );
@@ -1381,7 +1532,11 @@ void idAI::Event_GetJumpVelocity( const idVec3 &pos, float speed, float max_heig
 		end -= dir * 16.0f;
 	}
 
-	result = PredictTrajectory( start, end, speed, physicsObj.GetGravity(), physicsObj.GetClipModel(), MASK_MONSTERSOLID, max_height, this, enemyEnt, ai_debugMove.GetBool() ? 4000 : 0, dir );
+	if( enemyEnt->GetCurrentVehicle() ){
+		result = PredictTrajectory( start, end, speed, physicsObj.GetGravity(), physicsObj.GetClipModel(), MASK_MONSTERSOLID, max_height, this, enemyEnt->GetCurrentVehicle(), ai_debugMove.GetBool() ? 4000 : 0, dir );
+	}else{
+		result = PredictTrajectory( start, end, speed, physicsObj.GetGravity(), physicsObj.GetClipModel(), MASK_MONSTERSOLID, max_height, this, enemyEnt, ai_debugMove.GetBool() ? 4000 : 0, dir );
+	}
 	if ( result ) {
 		idThread::ReturnVector( dir * speed );
 	} else {
@@ -1436,6 +1591,15 @@ void idAI::Event_CanSeeEntity( idEntity *ent ) {
 		return;
 	}
 
+	//ff1.3 start - enemies and friends can see master while riding
+	if ( ent->IsType( idPlayer::Type ) ) {
+		idActor *actor = static_cast<idPlayer *>( ent )->GetCurrentRiddenAI();
+		if ( actor ) {
+			ent = actor;
+		}
+	}
+	//ff1.3 end
+
 	bool cansee = CanSee( ent, false );
 	idThread::ReturnInt( cansee );
 }
@@ -1488,7 +1652,9 @@ void idAI::Event_EnemyRange( void ) {
 	float dist;
 	idActor *enemyEnt = enemy.GetEntity();
 
-	if ( enemyEnt ) {
+	if ( enemyEnt && enemyEnt->GetCurrentVehicle() ) {
+		dist = ( enemyEnt->GetCurrentVehicle()->GetPhysics()->GetOrigin() - GetPhysics()->GetOrigin() ).Length();
+	} else if ( enemyEnt ) {
 		dist = ( enemyEnt->GetPhysics()->GetOrigin() - GetPhysics()->GetOrigin() ).Length();
 	} else {
 		// Just some really high number
@@ -1507,7 +1673,9 @@ void idAI::Event_EnemyRange2D( void ) {
 	float dist;
 	idActor *enemyEnt = enemy.GetEntity();
 
-	if ( enemyEnt ) {
+	if ( enemyEnt && enemyEnt->GetCurrentVehicle() ) {
+		dist = ( enemyEnt->GetCurrentVehicle()->GetPhysics()->GetOrigin().ToVec2() - GetPhysics()->GetOrigin().ToVec2() ).Length();
+	} else if ( enemyEnt ) {
 		dist = ( enemyEnt->GetPhysics()->GetOrigin().ToVec2() - GetPhysics()->GetOrigin().ToVec2() ).Length();
 	} else {
 		// Just some really high number
@@ -1559,8 +1727,15 @@ void idAI::Event_PredictEnemyPos( float time ) {
 		return;
 	}
 
+	idEntity *testEnt;
+	if( enemyEnt->GetCurrentVehicle() ){
+		testEnt = enemyEnt->GetCurrentVehicle();
+	}else{
+		testEnt = enemyEnt;
+	}
+
 	// predict the enemy movement
-	idAI::PredictPath( enemyEnt, aas, lastVisibleEnemyPos, enemyEnt->GetPhysics()->GetLinearVelocity(), SEC2MS( time ), SEC2MS( time ), ( move.moveType == MOVETYPE_FLY ) ? SE_BLOCKED : ( SE_BLOCKED | SE_ENTER_LEDGE_AREA ), path );
+	idAI::PredictPath( testEnt, aas, lastVisibleEnemyPos, testEnt->GetPhysics()->GetLinearVelocity(), SEC2MS( time ), SEC2MS( time ), ( move.moveType == MOVETYPE_FLY ) ? SE_BLOCKED : ( SE_BLOCKED | SE_ENTER_LEDGE_AREA ), path );
 
 	idThread::ReturnVector( path.endPos );
 }
@@ -1588,7 +1763,15 @@ void idAI::Event_CanHitEnemy( void ) {
 
 	lastHitCheckTime = gameLocal.time;
 
-	idVec3 toPos = enemyEnt->GetEyePosition();
+	idVec3 toPos;
+	idEntity *testEnt;
+	if( enemyEnt->GetCurrentVehicle() ){
+		toPos = enemyEnt->GetCurrentVehicle()->GetEyePosition();
+		testEnt = enemyEnt->GetCurrentVehicle();
+	}else{
+		toPos = enemyEnt->GetEyePosition();
+		testEnt = enemyEnt;
+	}
 	idVec3 eye = GetEyePosition();
 	idVec3 dir;
 
@@ -1598,10 +1781,10 @@ void idAI::Event_CanHitEnemy( void ) {
 	toPos = eye + dir * MAX_WORLD_SIZE;
 	gameLocal.clip.TracePoint( tr, eye, toPos, MASK_SHOT_BOUNDINGBOX, this );
 	hit = gameLocal.GetTraceEntity( tr );
-	if ( tr.fraction >= 1.0f || ( hit == enemyEnt ) ) {
+	if ( tr.fraction >= 1.0f || ( hit == testEnt ) ) {
 		lastHitCheckResult = true;
 	} else if ( ( tr.fraction < 1.0f ) && ( hit->IsType( idAI::Type ) ) &&
-		( static_cast<idAI *>( hit )->team != team ) ) {
+		( static_cast<idAI *>( hit )->team != team ) ) { //TODO: vehicle case?
 		lastHitCheckResult = true;
 	} else {
 		lastHitCheckResult = false;
@@ -1637,8 +1820,15 @@ void idAI::Event_CanHitEnemyFromAnim( const char *animname ) {
 		return;
 	}
 
+	idEntity *testEnt;
+	if( enemyEnt->GetCurrentVehicle() ){
+		testEnt = enemyEnt->GetCurrentVehicle();
+	}else{
+		testEnt = enemyEnt;
+	}
+
 	// just do a ray test if close enough
-	if ( enemyEnt->GetPhysics()->GetAbsBounds().IntersectsBounds( physicsObj.GetAbsBounds().Expand( 16.0f ) ) ) {
+	if ( testEnt->GetPhysics()->GetAbsBounds().IntersectsBounds( physicsObj.GetAbsBounds().Expand( 16.0f ) ) ) {
 		Event_CanHitEnemy();
 		return;
 	}
@@ -1675,7 +1865,86 @@ void idAI::Event_CanHitEnemyFromAnim( const char *animname ) {
 	gameLocal.clip.Translation( tr, start, fromPos, projectileClipModel, mat3_identity, MASK_SHOT_RENDERMODEL, this );
 	fromPos = tr.endpos;
 
-	if ( GetAimDir( fromPos, enemy.GetEntity(), this, dir ) ) {
+	if ( GetAimDir( fromPos, testEnt, this, dir ) ) {
+		idThread::ReturnInt( true );
+	} else {
+		idThread::ReturnInt( false );
+	}
+}
+
+/*
+=====================
+idAI::Event_CanHitNotVisibleEnemyFromAnim
+=====================
+*/
+void idAI::Event_CanHitNotVisibleEnemyFromAnim( const char *animname ) {
+	int		anim;
+	idVec3	dir;
+	idVec3	local_dir;
+	idVec3	fromPos;
+	idMat3	axis;
+	idVec3	start;
+	trace_t	tr;
+	float	distance;
+
+	idActor *enemyEnt = enemy.GetEntity();
+	if ( AI_ENEMY_VISIBLE || !enemyEnt ) {
+		idThread::ReturnInt( false );
+		return;
+	}
+
+	anim = GetAnim( ANIMCHANNEL_LEGS, animname );
+	if ( !anim ) {
+		idThread::ReturnInt( false );
+		return;
+	}
+
+	idEntity *testEnt;
+	if( enemyEnt->GetCurrentVehicle() ){
+		testEnt = enemyEnt->GetCurrentVehicle();
+	}else{
+		testEnt = enemyEnt;
+	}
+
+	// just do a ray test if close enough
+	if ( testEnt->GetPhysics()->GetAbsBounds().IntersectsBounds( physicsObj.GetAbsBounds().Expand( 16.0f ) ) ) {
+		Event_CanHitEnemy();
+		return;
+	}
+
+	// calculate the world transform of the launch position
+	const idVec3 &org = physicsObj.GetOrigin();
+	dir = testEnt->GetPhysics()->GetOrigin() - org;
+	physicsObj.GetGravityAxis().ProjectVector( dir, local_dir );
+	local_dir.z = 0.0f;
+	local_dir.ToVec2().Normalize();
+	axis = local_dir.ToMat3();
+	fromPos = physicsObj.GetOrigin() + missileLaunchOffset[ anim ] * axis;
+
+	if ( projectileClipModel == NULL ) {
+		CreateProjectileClipModel();
+	}
+
+	// check if the owner bounds is bigger than the projectile bounds
+	const idBounds &ownerBounds = physicsObj.GetAbsBounds();
+	const idBounds &projBounds = projectileClipModel->GetBounds();
+	if ( ( ( ownerBounds[1][0] - ownerBounds[0][0] ) > ( projBounds[1][0] - projBounds[0][0] ) ) &&
+		( ( ownerBounds[1][1] - ownerBounds[0][1] ) > ( projBounds[1][1] - projBounds[0][1] ) ) &&
+		( ( ownerBounds[1][2] - ownerBounds[0][2] ) > ( projBounds[1][2] - projBounds[0][2] ) ) ) {
+		if ( (ownerBounds - projBounds).RayIntersection( org, viewAxis[ 0 ], distance ) ) {
+			start = org + distance * viewAxis[ 0 ];
+		} else {
+			start = ownerBounds.GetCenter();
+		}
+	} else {
+		// projectile bounds bigger than the owner bounds, so just start it from the center
+		start = ownerBounds.GetCenter();
+	}
+
+	gameLocal.clip.Translation( tr, start, fromPos, projectileClipModel, mat3_identity, MASK_SHOT_RENDERMODEL, this );
+	fromPos = tr.endpos;
+
+	if ( GetAimDir( fromPos, testEnt, this, dir, false ) ) {
 		idThread::ReturnInt( true );
 	} else {
 		idThread::ReturnInt( false );
@@ -1709,7 +1978,15 @@ void idAI::Event_CanHitEnemyFromJoint( const char *jointname ) {
 	lastHitCheckTime = gameLocal.time;
 
 	const idVec3 &org = physicsObj.GetOrigin();
-	idVec3 toPos = enemyEnt->GetEyePosition();
+	idVec3 toPos;
+	idEntity *testEnt;
+	if( enemyEnt->GetCurrentVehicle() ){
+		toPos = enemyEnt->GetCurrentVehicle()->GetEyePosition();
+		testEnt = enemyEnt->GetCurrentVehicle();
+	}else{
+		toPos = enemyEnt->GetEyePosition();
+		testEnt = enemyEnt;
+	}
 	jointHandle_t joint = animator.GetJointHandle( jointname );
 	if ( joint == INVALID_JOINT ) {
 		gameLocal.Error( "Unknown joint '%s' on %s", jointname, GetEntityDefName() );
@@ -1741,7 +2018,7 @@ void idAI::Event_CanHitEnemyFromJoint( const char *jointname ) {
 	muzzle = tr.endpos;
 
 	gameLocal.clip.Translation( tr, muzzle, toPos, projectileClipModel, mat3_identity, MASK_SHOT_BOUNDINGBOX, this );
-	if ( tr.fraction >= 1.0f || ( gameLocal.GetTraceEntity( tr ) == enemyEnt ) ) {
+	if ( tr.fraction >= 1.0f || ( gameLocal.GetTraceEntity( tr ) == testEnt ) ) {
 		lastHitCheckResult = true;
 	} else {
 		lastHitCheckResult = false;
@@ -1774,12 +2051,22 @@ void idAI::Event_ChargeAttack( const char *damageDef ) {
 	if ( enemyEnt ) {
 		idVec3 enemyOrg;
 
-		if ( move.moveType == MOVETYPE_FLY ) {
-			// position destination so that we're in the enemy's view
-			enemyOrg = enemyEnt->GetEyePosition();
-			enemyOrg -= enemyEnt->GetPhysics()->GetGravityNormal() * fly_offset;
-		} else {
-			enemyOrg = enemyEnt->GetPhysics()->GetOrigin();
+		if( enemyEnt->GetCurrentVehicle() ){
+			if ( move.moveType == MOVETYPE_FLY ) {
+				// position destination so that we're in the enemy's view
+				enemyOrg = enemyEnt->GetCurrentVehicle()->GetEyePosition();
+				enemyOrg -= enemyEnt->GetCurrentVehicle()->GetPhysics()->GetGravityNormal() * fly_offset;
+			} else {
+				enemyOrg = enemyEnt->GetCurrentVehicle()->GetPhysics()->GetOrigin();
+			}
+		}else{
+			if ( move.moveType == MOVETYPE_FLY ) {
+				// position destination so that we're in the enemy's view
+				enemyOrg = enemyEnt->GetEyePosition();
+				enemyOrg -= enemyEnt->GetPhysics()->GetGravityNormal() * fly_offset;
+			} else {
+				enemyOrg = enemyEnt->GetPhysics()->GetOrigin();
+			}
 		}
 
 		BeginAttack( damageDef );
@@ -1803,12 +2090,22 @@ void idAI::Event_TestChargeAttack( void ) {
 		return;
 	}
 
-	if ( move.moveType == MOVETYPE_FLY ) {
-		// position destination so that we're in the enemy's view
-		end = enemyEnt->GetEyePosition();
-		end -= enemyEnt->GetPhysics()->GetGravityNormal() * fly_offset;
-	} else {
-		end = enemyEnt->GetPhysics()->GetOrigin();
+	if( enemyEnt->GetCurrentVehicle() ){
+		if ( move.moveType == MOVETYPE_FLY ) {
+			// position destination so that we're in the enemy's view
+			end = enemyEnt->GetCurrentVehicle()->GetEyePosition();
+			end -= enemyEnt->GetCurrentVehicle()->GetPhysics()->GetGravityNormal() * fly_offset;
+		} else {
+			end = enemyEnt->GetCurrentVehicle()->GetPhysics()->GetOrigin();
+		}
+	}else{
+		if ( move.moveType == MOVETYPE_FLY ) {
+			// position destination so that we're in the enemy's view
+			end = enemyEnt->GetEyePosition();
+			end -= enemyEnt->GetPhysics()->GetGravityNormal() * fly_offset;
+		} else {
+			end = enemyEnt->GetPhysics()->GetOrigin();
+		}
 	}
 
 	idAI::PredictPath( this, aas, physicsObj.GetOrigin(), end - physicsObj.GetOrigin(), 1000, 1000, ( move.moveType == MOVETYPE_FLY ) ? SE_BLOCKED : ( SE_ENTER_OBSTACLE | SE_BLOCKED | SE_ENTER_LEDGE_AREA ), path );
@@ -1853,7 +2150,7 @@ void idAI::Event_TestAnimMoveTowardEnemy( const char *animname ) {
 		return;
 	}
 
-	delta = enemyEnt->GetPhysics()->GetOrigin() - physicsObj.GetOrigin();
+	delta = ( enemyEnt->GetCurrentVehicle() ? enemyEnt->GetCurrentVehicle()->GetPhysics()->GetOrigin() : enemyEnt->GetPhysics()->GetOrigin() ) - physicsObj.GetOrigin();
 	yaw = delta.ToYaw();
 
 	moveVec = animator.TotalMovementDelta( anim ) * idAngles( 0.0f, yaw, 0.0f ).ToMat3() * physicsObj.GetGravityAxis();
@@ -1943,8 +2240,12 @@ void idAI::Event_TestAnimAttack( const char *animname ) {
 	}
 
 	idAI::PredictPath( this, aas, physicsObj.GetOrigin(), animator.TotalMovementDelta( anim ), 1000, 1000, ( move.moveType == MOVETYPE_FLY ) ? SE_BLOCKED : ( SE_ENTER_OBSTACLE | SE_BLOCKED | SE_ENTER_LEDGE_AREA ), path );
-
-	idThread::ReturnInt( path.blockingEntity && ( path.blockingEntity == enemy.GetEntity() ) );
+	idActor * enemyEnt = enemy.GetEntity();
+	if( enemyEnt && enemyEnt->GetCurrentVehicle() ){
+		idThread::ReturnInt( path.blockingEntity && ( path.blockingEntity == enemyEnt->GetCurrentVehicle() ) );
+	}else{
+		idThread::ReturnInt( path.blockingEntity && ( path.blockingEntity == enemyEnt ) );
+	}
 }
 
 /*
@@ -1991,6 +2292,10 @@ void idAI::Event_PreBurn( void ) {
 
 	// for now this just turns shadows off
 	renderEntity.noShadow = true;
+
+	if ( head.GetEntity() ) { //ff1.3
+		head.GetEntity()->GetRenderEntity()->noShadow = true;
+	}
 }
 
 /*
@@ -1999,10 +2304,47 @@ idAI::Event_Burn
 =====================
 */
 void idAI::Event_Burn( void ) {
-	renderEntity.shaderParms[ SHADERPARM_TIME_OF_DEATH ] = gameLocal.time * 0.001f;
+	//ff1.3 start
+	const char *skinName = spawnArgs.GetString( "skin_burn" );
+	if ( skinName[0] ) {
+		renderEntity.customSkin = declManager->FindSkin( skinName );
+	}
+	//ff1.3 end
 	SpawnParticles( "smoke_burnParticleSystem" );
-	UpdateVisuals();
+	FadeOut();
 }
+
+//ff1.3 start
+/*
+=====================
+idAI::Event_Disintegrate
+=====================
+*/
+void idAI::Event_Disintegrate( void ) {
+	Event_PreBurn();
+	//SpawnParticles( "smoke_disintegrateParticleSystem" );
+	FadeOut();
+}
+
+/*
+=====================
+idAI::FadeOut
+=====================
+*/
+void idAI::FadeOut( void ) {
+	renderEntity.shaderParms[ SHADERPARM_TIME_OF_DEATH ] = gameLocal.time * 0.001f;
+	UpdateVisuals();
+
+	if ( head.GetEntity() ) { //ff1.3
+		head.GetEntity()->GetRenderEntity()->shaderParms[ SHADERPARM_TIME_OF_DEATH ]  = gameLocal.time * 0.001f;
+		head.GetEntity()->UpdateVisuals();
+	}
+
+	//turn off dmgfxs on burn
+	StopDamageFxs();
+	allowDmgfxs = false;
+}
+//ff1.3 end
 
 /*
 =====================
@@ -2012,7 +2354,16 @@ idAI::Event_ClearBurn
 void idAI::Event_ClearBurn( void ) {
 	renderEntity.noShadow = spawnArgs.GetBool( "noshadows" );
 	renderEntity.shaderParms[ SHADERPARM_TIME_OF_DEATH ] = 0.0f;
+
+	if ( head.GetEntity() ) { //ff1.3
+		head.GetEntity()->GetRenderEntity()->noShadow = renderEntity.noShadow;
+		head.GetEntity()->GetRenderEntity()->shaderParms[ SHADERPARM_TIME_OF_DEATH ] = 0.0f;
+	}
 	UpdateVisuals();
+
+	//ivan start
+	spawnArgs.GetBool( "allowDmgfxs", "0", allowDmgfxs ); //restore initial value
+	//ivan end
 }
 
 /*
@@ -2454,8 +2805,14 @@ void idAI::Event_LookAtEnemy( float duration ) {
 	idActor *enemyEnt;
 
 	enemyEnt = enemy.GetEntity();
-	if ( ( enemyEnt != focusEntity.GetEntity() ) || ( focusTime < gameLocal.time ) ) {
-		focusEntity	= enemyEnt;
+	idEntity *testEnt;
+	if( enemyEnt && enemyEnt->GetCurrentVehicle() ){
+		testEnt = enemyEnt->GetCurrentVehicle();
+	}else{
+		testEnt = enemyEnt;
+	}
+	if ( ( testEnt != focusEntity.GetEntity() ) || ( focusTime < gameLocal.time ) ) {
+		focusEntity	= testEnt;
 		alignHeadTime = gameLocal.time;
 		forceAlignHeadTime = gameLocal.time + SEC2MS( 1 );
 		blink_time = 0;
@@ -2760,12 +3117,23 @@ void idAI::Event_CanReachEntity( idEntity *ent ) {
 		return;
 	}
 
+	idActor *actor;
+	if( ent->IsType( idActor::Type ) ){
+		actor = static_cast<idActor *>( ent );
+		if( actor->GetCurrentVehicle() ){
+			ent = actor->GetCurrentVehicle();
+			actor = NULL;
+		}
+	}else{
+		actor = NULL;
+	}
+
 	if ( move.moveType != MOVETYPE_FLY ) {
 		if ( !ent->GetFloorPos( 64.0f, pos ) ) {
 			idThread::ReturnInt( false );
 			return;
 		}
-		if ( ent->IsType( idActor::Type ) && static_cast<idActor *>( ent )->OnLadder() ) {
+		if ( actor && actor->OnLadder() ) {
 			idThread::ReturnInt( false );
 			return;
 		}
@@ -2813,7 +3181,11 @@ void idAI::Event_CanReachEnemy( void ) {
 		}
 		enemyEnt->GetAASLocation( aas, pos, toAreaNum );
 	}  else {
-		pos = enemyEnt->GetPhysics()->GetOrigin();
+		if( enemyEnt->GetCurrentVehicle() ){
+			pos = enemyEnt->GetCurrentVehicle()->GetPhysics()->GetOrigin();
+		}else{
+			pos = enemyEnt->GetPhysics()->GetOrigin();
+		}
 		toAreaNum = PointReachableAreaNum( pos );
 	}
 
@@ -2840,12 +3212,23 @@ void idAI::Event_GetReachableEntityPosition( idEntity *ent ) {
 	int		toAreaNum;
 	idVec3	pos;
 
+	idActor *actor;
+	if( ent->IsType( idActor::Type ) ){
+		actor = static_cast<idActor *>( ent );
+		if( actor->GetCurrentVehicle() ){
+			ent = actor->GetCurrentVehicle();
+			actor = NULL;
+		}
+	}else{
+		actor = NULL;
+	}
+
 	if ( move.moveType != MOVETYPE_FLY ) {
 		if ( !ent->GetFloorPos( 64.0f, pos ) ) {
 			// NOTE: not a good way to return 'false'
 			return idThread::ReturnVector( vec3_zero );
 		}
-		if ( ent->IsType( idActor::Type ) && static_cast<idActor *>( ent )->OnLadder() ) {
+		if ( actor && actor->OnLadder() ) {
 			// NOTE: not a good way to return 'false'
 			return idThread::ReturnVector( vec3_zero );
 		}
@@ -2886,12 +3269,15 @@ void idAI::Event_AvoidObstacles( int ignore) {
 idAI::Event_TriggerFX
 ================
 */
+
+/* ff1.1 - moved to idAnimatedEntity
 void idAI::Event_TriggerFX( const char* joint, const char* fx ) {
 	TriggerFX(joint, fx);
 }
+*/
 
 void idAI::Event_StartEmitter( const char* name, const char* joint, const char* particle ) {
-	idEntity *ent = StartEmitter(name, joint, particle);
+	idEntity *ent = StartEmitter(name, joint, particle, true);
 	idThread::ReturnEntity(ent);
 }
 
@@ -2904,3 +3290,306 @@ void idAI::Event_StopEmitter( const char* name ) {
 }
 
 #endif
+
+
+//ff1.3 start
+/*
+================
+idAI::Event_SetSkin
+================
+*/
+void idAI::Event_SetSkin( const char *skinname ) {
+	const idDeclSkin *skin = declManager->FindSkin( skinname );
+	if ( helltimeMode ) {
+		postHelltimeSkin = skin;
+	} else {
+		renderEntity.customSkin = skin;
+		UpdateVisuals();
+	}
+}
+
+/*
+================
+idAI::Event_EnemyIsDriving
+================
+*/
+void idAI::Event_EnemyIsDriving( void ) {
+	idActor *enemyEnt = enemy.GetEntity();
+
+	if ( enemyEnt && (enemyEnt->GetCurrentVehicle() || enemyEnt->IsType( idAI_Rideable::Type )) ) {
+		idThread::ReturnInt( true );
+		return;
+	}
+
+	idThread::ReturnInt( false );
+}
+
+/*
+================
+idAI::Event_EnemyIsPlayer
+================
+*/
+void idAI::Event_EnemyIsPlayer( void ) {
+	idActor *enemyEnt = enemy.GetEntity();
+
+	if ( enemyEnt && (enemyEnt->IsType( idPlayer::Type ) || enemyEnt->IsType( idAI_Rideable::Type )) ) {
+		idThread::ReturnInt( true );
+		return;
+	}
+
+	idThread::ReturnInt( false );
+}
+
+/*
+================
+idAI::Event_SetActivateTargetsOnDeath
+================
+*/
+void idAI::Event_SetActivateTargetsOnDeath( int activate ) {
+	activateTargetsOnDeath = ( activate > 0 );
+}
+
+
+/*
+================
+idAI::Event_SetTeam
+================
+*/
+void idAI::Event_SetTeam( int newTeam ) {
+	ChangeTeam( newTeam );
+}
+
+
+/*
+================
+idAI::Event_RestoreTeam
+================
+*/
+void idAI::Event_RestoreTeam( void ) {
+	ChangeTeam( spawnArgs.GetInt("team", "1") ); //same default as in idAI::Spawn
+}
+
+/*
+=====================
+idAI::Event_EnemyInFov
+=====================
+*/
+void idAI::Event_EnemyInFov( void ) {
+	idActor	*enemyEnt;
+	enemyEnt = enemy.GetEntity();
+	if ( !enemyEnt ) {
+		idThread::ReturnInt( false );
+		return;
+	}
+	idThread::ReturnFloat( CheckFOV( enemyEnt->GetPhysics()->GetOrigin(), fovDot ) ? 1.0f : 0.0f );
+}
+
+/*
+=====================
+idAI::Event_EnemyInFovDegrees
+=====================
+*/
+void idAI::Event_EnemyInFovDegrees( float fov ) {
+	idActor	*enemyEnt;
+	enemyEnt = enemy.GetEntity();
+	if ( !enemyEnt ) {
+		idThread::ReturnInt( false );
+		return;
+	}
+	float targetFovDot = (float)cos( DEG2RAD( fov * 0.5f ) );
+	idThread::ReturnFloat( CheckFOV( enemyEnt->GetPhysics()->GetOrigin(), targetFovDot ) ? 1.0f : 0.0f );
+}
+
+
+/*
+=====================
+idAI::Event_HeardSound
+=====================
+*/
+void idAI::Event_HeardSuspiciousSound( float focusFov, float focusDistance, float fovDistance, float minDistance ) {
+	// check if we heard any sounds in the last frame
+	idActor	*actor = gameLocal.GetAlertEntity();
+	if ( actor && ( ReactionTo( actor ) & ATTACK_ON_SIGHT ) && gameLocal.InPlayerPVS( this ) ) {
+		idVec3 pos = gameLocal.GetAlertPos(); //check projectile or fire position, not owner position
+		if ( SuspiciousPosition( pos, focusFov, focusDistance, fovDistance, minDistance ) ) { //AI_HEARING_RANGE
+			idThread::ReturnEntity( actor );
+			return;
+		}
+	}
+
+	idThread::ReturnEntity( NULL );
+}
+
+/*
+=====================
+idAI::Event_HeardSound
+=====================
+*/
+void idAI::Event_EnemyInSuspiciousPosition( float focusFov, float focusDistance, float fovDistance, float minDistance ) {
+	// check if we heard any sounds in the last frame
+	idActor	*actor = enemy.GetEntity();
+	if ( actor /*&& gameLocal.InPlayerPVS( this )*/ ) {
+		if ( SuspiciousPosition( actor->GetPhysics()->GetOrigin(), focusFov, focusDistance, fovDistance, minDistance ) ) { //AI_HEARING_RANGE
+			idThread::ReturnFloat( 1.0f );
+			return;
+		}
+	}
+
+	idThread::ReturnFloat( 0.0f );
+}
+
+/*
+=====================
+idAI::Event_EnemyInFovDegrees
+=====================
+*/
+bool idAI::SuspiciousPosition( const idVec3 &pos, float focusFov, float focusDistance, float fovDistance, float minDistance ) {
+	idVec3 dist = pos - physicsObj.GetOrigin();
+	if ( idMath::Fabs(dist.z) > AI_SUSPICIOUS_RANGE_Z ) {
+		//gameLocal.Printf("Fabs(dist.z) > AI_SUSPICIOUS_RANGE_Z\n");
+		return false;
+	}
+	float testDist = CheckFOV( pos, (float)cos( DEG2RAD( focusFov * 0.5f ) ) )
+						? focusDistance
+						: CheckFOV( pos, fovDot )
+							? fovDistance
+							: minDistance;
+
+	return ( dist.LengthSqr() < Square( testDist ) );
+}
+
+/*
+=====================
+idAI::Event_StartRiding
+=====================
+*/
+void idAI::Event_StartRiding( idEntity* driver, int checkSkippedTriggers ){
+	int i;
+
+	if ( !driver || !driver->IsType( idPlayer::Type ) ) {
+		gameLocal.Warning("%s: driver is not an idPlayer", name.c_str());
+		return;
+	}
+
+	if ( !static_cast< idPlayer * >( driver )->CanEnterAI() ) {
+		gameLocal.Warning("%s: driver cannot enter AI", name.c_str());
+		return;
+	}
+
+	const char *rideableDefName = spawnArgs.GetString( "def_rideable" );
+	if ( *rideableDefName == '\0' ) {
+		gameLocal.Warning("%s: no 'def_rideable' defined", name.c_str());
+		return;
+	}
+
+	const idDeclEntityDef *rideableDef = gameLocal.FindEntityDef( rideableDefName, false );
+	if ( !rideableDef ) {
+		gameLocal.Warning("%s: Unknown classname '%s'", name.c_str(), rideableDefName);
+		return;
+	}
+
+	idVec3	rideableOrigin;
+	idVec3	monsterOrigin = physicsObj.GetOrigin();
+	idVec3	rideableSize = rideableDef->dict.GetVector("size", " 0 0 0");
+	idVec3	monsterSize = spawnArgs.GetVector("size", " 0 0 0");
+
+	if ( rideableSize.z > monsterSize.z ) { //fix ceilings (e.g. for seeker)
+		trace_t tr;
+		idVec3	endPos = monsterOrigin + idVec3( 0, 0, rideableSize.z + CM_CLIP_EPSILON );
+		gameLocal.clip.TraceBounds( tr, monsterOrigin, endPos, physicsObj.GetBounds(), CONTENTS_SOLID, this );
+
+		if ( tr.fraction < 1.0f ) {
+			rideableOrigin = tr.endpos - idVec3( 0, 0, rideableSize.z - monsterSize.z + CM_CLIP_EPSILON );
+		} else {
+			rideableOrigin = monsterOrigin + idVec3( 0, 0, CM_CLIP_EPSILON );
+		}
+	} else {
+		rideableOrigin = monsterOrigin + idVec3( 0, 0, CM_CLIP_EPSILON );
+	}
+
+	idEntity *rideableEnt;
+	idDict rideSpawnArgs;
+
+	rideSpawnArgs.Set( "classname", spawnArgs.GetString( "classname" ) );
+	rideSpawnArgs.SetVector( "origin", rideableOrigin );
+	rideSpawnArgs.SetFloat( "angle", current_yaw );
+	rideSpawnArgs.SetBool( RIDEABLE_TIMEMODE_SPAWNARG, spawnArgs.GetBool( RIDEABLE_TIMEMODE_SPAWNARG, "1" ) ); //timemode by default
+	rideSpawnArgs.SetBool( RIDEABLE_MODE_SPAWNARG, true ); //def_rideable keys will be copied in the spawnArgs
+
+	//special handling for zombie parameters
+	if ( spawnArgs.GetBool( "zombie_bomb" ) ) {
+		rideSpawnArgs.SetBool( "zombie_bomb", true );
+	}
+	if ( spawnArgs.GetBool( "blood_head" ) ) {
+		rideSpawnArgs.SetBool( "blood_head", true );
+	}
+
+	if ( gameLocal.SpawnEntityDef( rideSpawnArgs, &rideableEnt ) ) {
+
+		if ( !rideableEnt || !rideableEnt->IsType( idAI_Rideable::Type ) ) {
+			gameLocal.Error( "%s: 'def_rideable' is not an idAI_Rideable", name.c_str() );
+		}
+
+		idVec3 linearVelocity = physicsObj.GetLinearVelocity();
+		Hide();
+
+		//steal targets
+		if ( activateTargetsOnDeath ) {
+			activateTargetsOnDeath = false;
+
+			idEntity *targetEnt;
+			for( i = 0; i < targets.Num(); i++ ) {
+				targetEnt = targets[ i ].GetEntity();
+				if ( !targetEnt ) {
+					continue;
+				}
+				idEntityPtr<idEntity> &entityPtr = rideableEnt->targets.Alloc();
+				entityPtr = targetEnt;
+			}
+		}
+
+		/*
+		//TODO copy should be by type, not by EntityDefName because rideable monsters have different defs
+		//copy active dmgfxs
+		if ( dmgFxEntities.Num() > 0 ) {
+			idDamagingFx* dmgFxEnt;
+			for( i = dmgFxEntities.Num() - 1; i >= 0; i-- ) {
+				dmgFxEnt = dmgFxEntities[ i ].GetEntity();
+				if ( !dmgFxEnt ) {
+					continue;
+				}
+				static_cast<idAI_Rideable *>( rideableEnt )->StartDamageFx( dmgFxEnt->GetEntityDefName(), NULL );
+			}
+		}
+		*/
+
+		//clear enemies
+		idActor *ent;
+		int num = 0;
+		for( ent = enemyList.Next(); ent != NULL; ent = ent->enemyNode.Next() ) {
+			if ( ent->IsType( idAI::Type ) ) {
+				static_cast<idAI*>(ent)->PostEventMS( &AI_ClearEnemy, 0 );
+			}
+		}
+
+		//kill
+		//PostEventSec( &AI_Kill, 3.0f );
+		PostEventMS( &EV_Remove, 0 );
+
+		//Enable riding mode
+		rideableEnt->PostEventMS( &EV_SetLinearVelocity, gameLocal.msec, linearVelocity );
+		rideableEnt->PostEventMS( &AI_StartRiding, gameLocal.msec, driver, checkSkippedTriggers ); //wait 1 frame more so 'init' script function can wait 1 extra frame
+		rideableEnt->PostEventSec( &EV_ActivateTargets, 3.0f, rideableEnt );
+	}
+}
+
+/*
+=====================
+idAI::Event_NoTarget
+=====================
+*/
+void idAI::Event_NoTarget( int enable ){
+	fl.notarget = ( enable != 0 );
+}
+
+//ff1.3 end

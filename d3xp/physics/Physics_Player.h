@@ -71,6 +71,8 @@ typedef struct playerPState_s {
 	int						movementTime;
 } playerPState_t;
 
+const int DODGE_HISTORY_SIZE = 3;
+
 class idPhysics_Player : public idPhysics_Actor {
 
 public:
@@ -94,11 +96,16 @@ public:
 	waterLevel_t			GetWaterLevel( void ) const;
 	int						GetWaterType( void ) const;
 	bool					HasJumped( void ) const;
+	bool					HasDodged( void ) const; //ff1.3
 	bool					HasSteppedUp( void ) const;
 	float					GetStepUp( void ) const;
 	bool					IsCrouching( void ) const;
 	bool					OnLadder( void ) const;
 	const idVec3 &			PlayerGetOrigin( void ) const;	// != GetOrigin
+
+	//ivan start
+	int						GetHintForForceFields( void );
+	//ivan end
 
 public:	// common physics interface
 	bool					Evaluate( int timeStepMSec, int endTimeMSec );
@@ -131,6 +138,8 @@ public:	// common physics interface
 
 	void					WriteToSnapshot( idBitMsgDelta &msg ) const;
 	void					ReadFromSnapshot( const idBitMsgDelta &msg );
+
+	void					SetGravityMultiplier( float mult); //ff1.1
 
 private:
 	// player physics state
@@ -169,6 +178,18 @@ private:
 	waterLevel_t			waterLevel;
 	int						waterType;
 
+	//ff1.3 start
+	bool					doubleJumpDone;
+	int						lastJumpTime;
+
+	int						nextDodgeMinTime;
+	int						nextDodgeMaxTime;
+	int						dodgeHistoryTimeout;
+	int						dodgeHistory[DODGE_HISTORY_SIZE];
+	
+	float					gravityMultiplier; //ff1.1
+	//ff1.3 end
+	
 private:
 	float					CmdScale( const usercmd_t &cmd ) const;
 	void					Accelerate( const idVec3 &wishdir, const float wishspeed, const float accel );
@@ -192,6 +213,14 @@ private:
 	void					SetWaterLevel( void );
 	void					DropTimers( void );
 	void					MovePlayer( int msec );
+
+	//ff1.3 start
+	bool					CheckDoubleJumpGroundDistance( void );
+	bool					CheckDoubleJump( void );
+	void					CheckDodge( void );
+	void					PerformDodge( void );
+	bool					CanWallDodge( void );
+	//ff1.3 end
 };
 
 #endif /* !__PHYSICS_PLAYER_H__ */

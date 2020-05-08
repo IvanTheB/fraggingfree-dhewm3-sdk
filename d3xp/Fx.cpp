@@ -44,12 +44,14 @@ If you have questions concerning this license or the applicable additional terms
 ===============================================================================
 */
 
+const idEventDef EV_Fx_FadeFx( "fadeFx" ); //ivan - also remove it
 const idEventDef EV_Fx_KillFx( "_killfx" );
 const idEventDef EV_Fx_Action( "_fxAction", "e" );		// implemented by subclasses
 
 CLASS_DECLARATION( idEntity, idEntityFx )
 EVENT( EV_Activate,		idEntityFx::Event_Trigger )
 EVENT( EV_Fx_KillFx,	idEntityFx::Event_ClearFx )
+EVENT( EV_Fx_FadeFx,	idEntityFx::Event_FadeFx ) //ivan
 END_CLASS
 
 
@@ -60,6 +62,13 @@ idEntityFx::Save
 */
 void idEntityFx::Save( idSaveGame *savefile ) const {
 	int i;
+
+	//ivan start
+	victim.Save( savefile );
+	savefile->WriteBool( manualRemove );
+	savefile->WriteBool( manualFadingOut );
+	savefile->WriteBool( hasEndlessSounds );
+	//ivan end
 
 	savefile->WriteInt( started );
 	savefile->WriteInt( nextTriggerTime );
@@ -90,6 +99,10 @@ void idEntityFx::Save( idSaveGame *savefile ) const {
 		savefile->WriteBool( actions[i].shakeStarted );
 		savefile->WriteBool( actions[i].decalDropped );
 		savefile->WriteBool( actions[i].launched );
+		//ff1.3 start
+		savefile->WriteParticle( actions[i].smoke );
+		savefile->WriteInt( actions[i].smokeTime );
+		//ff1.3 end
 	}
 }
 
@@ -102,6 +115,13 @@ void idEntityFx::Restore( idRestoreGame *savefile ) {
 	int i;
 	int num;
 	bool hasObject;
+
+	//ivan start
+	victim.Restore( savefile );
+	savefile->ReadBool( manualRemove );
+	savefile->ReadBool( manualFadingOut );
+	savefile->ReadBool( hasEndlessSounds );
+	//ivan end
 
 	savefile->ReadInt( started );
 	savefile->ReadInt( nextTriggerTime );
@@ -134,13 +154,17 @@ void idEntityFx::Restore( idRestoreGame *savefile ) {
 		savefile->ReadFloat( actions[i].delay );
 
 		// let the FX regenerate the particleSystem
-		actions[i].particleSystem = -1;
+		//actions[i].particleSystem = -1; //ff1.3 - removed
 
 		savefile->ReadInt( actions[i].start );
 		savefile->ReadBool( actions[i].soundStarted );
 		savefile->ReadBool( actions[i].shakeStarted );
 		savefile->ReadBool( actions[i].decalDropped );
 		savefile->ReadBool( actions[i].launched );
+		//ff1.3 start
+		savefile->ReadParticle( actions[i].smoke );
+		savefile->ReadInt( actions[i].smokeTime );
+		//ff1.3 end
 	}
 }
 
@@ -150,9 +174,10 @@ idEntityFx::Setup
 ================
 */
 void idEntityFx::Setup( const char *fx ) {
+	//gameLocal.Printf("idEntityFx::Setup at %d\n", gameLocal.time);
 
 	if ( started >= 0 ) {
-		return;					// already started
+		return;	// already started at least once
 	}
 
 	// early during MP Spawn() with no information. wait till we ReadFromSnapshot for more
@@ -162,7 +187,7 @@ void idEntityFx::Setup( const char *fx ) {
 
 	systemName = fx;
 	started = 0;
-
+	hasEndlessSounds = false; //ivan
 	fxEffect = static_cast<const idDeclFX *>( declManager->FindType( DECL_FX, systemName.c_str() ) );
 
 	if ( fxEffect ) {
@@ -184,10 +209,22 @@ void idEntityFx::Setup( const char *fx ) {
 			laction.start = -1;
 			laction.lightDefHandle = -1;
 			laction.modelDefHandle = -1;
-			laction.particleSystem = -1;
+			//laction.particleSystem = -1; //ff1.3 removed
 			laction.shakeStarted = false;
 			laction.decalDropped = false;
 			laction.launched = false;
+
+			//ivan start
+			laction.smokeTime = -1;
+			if ( fxaction.data.Find( "_smoke.prt" ) >= 0 ) { //if ( fxaction.particleTrackVelocity ) { //if ( fxaction.data.Find( ".smoke" ) >= 0 ) {
+				laction.smoke = static_cast<const idDeclParticle *>( declManager->FindType( DECL_PARTICLE, fxaction.data ) );
+			}
+
+			if ( !hasEndlessSounds && fxaction.type == FX_SOUND && fxaction.duration <= 0 ){
+				hasEndlessSounds = true;
+				//gameLocal.Printf("this FX hasEndlessSounds");
+			}
+			//ivan end
 		}
 	}
 }
@@ -209,6 +246,40 @@ idEntityFx::Joint
 const char *idEntityFx::Joint( void ) {
 	return fxEffect ? fxEffect->joint.c_str() : NULL;
 }
+
+//ivan start
+/*
+================
+idEntityFx::ResetShaderParms
+================
+*/
+void idEntityFx::ResetShaderParms( void ) {
+	if ( !fxEffect ) {
+		return;
+	}
+	for( int i = 0; i < fxEffect->events.Num(); i++ ) {
+		const idFXSingleAction& fxaction = fxEffect->events[i];
+		idFXLocalAction& laction = actions[i];
+
+		if ( laction.lightDefHandle != -1 && fxaction.sibling == -1 && fxaction.type != FX_ATTACHLIGHT ) {
+			laction.renderLight.shaderParms[ SHADERPARM_RED ]	= fxaction.lightColor.x;
+			laction.renderLight.shaderParms[ SHADERPARM_GREEN ]	= fxaction.lightColor.y;
+			laction.renderLight.shaderParms[ SHADERPARM_BLUE ]	= fxaction.lightColor.z;
+			laction.renderLight.shaderParms[ SHADERPARM_TIMEOFFSET ] = -MS2SEC( gameLocal.time );
+		}
+		if ( laction.modelDefHandle != -1 && fxaction.sibling == -1 && fxaction.type != FX_ATTACHENTITY ) {
+			laction.renderEntity.shaderParms[ SHADERPARM_RED ]		= 1.0f;
+			laction.renderEntity.shaderParms[ SHADERPARM_GREEN ]	= 1.0f;
+			laction.renderEntity.shaderParms[ SHADERPARM_BLUE ]		= 1.0f;
+			if ( manualFadingOut ) { //no need to reset it if we are not fading - this would make the particle to change position instantly
+				laction.renderEntity.shaderParms[ SHADERPARM_TIMEOFFSET ] = -MS2SEC( gameLocal.time );
+			}
+			laction.renderEntity.shaderParms[ SHADERPARM_PARTICLE_STOPTIME ] = 0; //make particles to appear
+		}
+	}
+}
+
+//ivan end
 
 /*
 ================
@@ -252,13 +323,45 @@ void idEntityFx::Start( int time ) {
 	if ( !fxEffect ) {
 		return;
 	}
+
+	//ff1.3 start
+	// already started
+	bool restartSounds = true;
+	if ( started >= 0 ){
+		if ( manualFadingOut && hasEndlessSounds ) { //if fading and endless we need to stop them
+			StopSound( SND_CHANNEL_ANY, false );
+			//gameLocal.Printf("sounds stopped!");
+		} else {
+			restartSounds = false;
+			//gameLocal.Printf("sounds not stopped!");
+		}
+	}
+	manualFadingOut = false;
+	//ff1.3 end
+
 	started = time;
+
 	for( int i = 0; i < fxEffect->events.Num(); i++ ) {
 		idFXLocalAction& laction = actions[i];
-		laction.start = time;
-		laction.soundStarted = false;
+
+		//ff1.3 start
+		//was: laction.start = time;
+		if ( laction.delay < 0 ) { //will be started manually
+			laction.start = -1; //start disabled
+		} else {
+			laction.start = time;
+		}
+
+		//was: laction.soundStarted = false;
+		if ( restartSounds ) {
+			laction.soundStarted = false;
+		} //else don't change it!
+
+		laction.smokeTime = time;
+		//ff1.3 end
+
 		laction.shakeStarted = false;
-		laction.particleSystem = -1;
+		//laction.particleSystem = -1; //ff1.3 - removed
 		laction.decalDropped = false;
 		laction.launched = false;
 	}
@@ -273,6 +376,39 @@ void idEntityFx::Stop( void ) {
 	CleanUp();
 	started = -1;
 }
+
+//ivan start
+/*
+================
+idEntityFx::FadeDuration
+
+It returns the max 'duration' of the fadeOut stage with "delay -1" (manually started)
+================
+*/
+const int idEntityFx::FadeDuration( void ) {
+	int max = 0;
+
+	if ( !fxEffect ) {
+		return max;
+	}
+	for( int i = 0; i < fxEffect->events.Num(); i++ ) {
+		const idFXSingleAction& fxaction = fxEffect->events[i];
+
+		if ( fxaction.delay > 0 || fxaction.fadeOutTime <= 0 ) { //than it's not part of the manual fade
+			continue;
+		}
+
+		int d = ( fxaction.duration ) * 1000.0f;
+		if ( d > max ) {
+			max = d;
+		}
+	}
+
+	//gameLocal.Printf("FadeDuration: %d\n", max);
+	return max;
+}
+
+//ivan end
 
 /*
 ================
@@ -303,6 +439,11 @@ idEntityFx::Done
 ================
 */
 const bool idEntityFx::Done() {
+	//ivan start
+	if ( manualRemove ) { //it is never "done"... unless it has been removed :)
+		return false;
+	}
+	//ivan end
 	if (started > 0 && gameLocal.time > started + Duration()) {
 		return true;
 	}
@@ -321,9 +462,11 @@ void idEntityFx::ApplyFade( const idFXSingleAction& fxaction, idFXLocalAction& l
 			fadePct = 1.0;
 		}
 		if ( laction.modelDefHandle != -1 ) {
+			//ivan start - use entity color
 			laction.renderEntity.shaderParms[SHADERPARM_RED] = (fxaction.fadeInTime) ? fadePct : 1.0f - fadePct;
 			laction.renderEntity.shaderParms[SHADERPARM_GREEN] = (fxaction.fadeInTime) ? fadePct : 1.0f - fadePct;
 			laction.renderEntity.shaderParms[SHADERPARM_BLUE] = (fxaction.fadeInTime) ? fadePct : 1.0f - fadePct;
+            //ivan end
 
 			gameRenderWorld->UpdateEntityDef( laction.modelDefHandle, &laction.renderEntity );
 		}
@@ -331,6 +474,8 @@ void idEntityFx::ApplyFade( const idFXSingleAction& fxaction, idFXLocalAction& l
 			laction.renderLight.shaderParms[SHADERPARM_RED] = fxaction.lightColor.x * ( (fxaction.fadeInTime) ? fadePct : 1.0f - fadePct );
 			laction.renderLight.shaderParms[SHADERPARM_GREEN] = fxaction.lightColor.y * ( (fxaction.fadeInTime) ? fadePct : 1.0f - fadePct );
 			laction.renderLight.shaderParms[SHADERPARM_BLUE] = fxaction.lightColor.z * ( (fxaction.fadeInTime) ? fadePct : 1.0f - fadePct );
+
+			//gameLocal.Printf("upd light fadePct %f, shaderParms %f %f %f\n", fadePct,laction.renderLight.shaderParms[SHADERPARM_RED],laction.renderLight.shaderParms[SHADERPARM_GREEN],laction.renderLight.shaderParms[SHADERPARM_BLUE]);
 
 			gameRenderWorld->UpdateLightDef( laction.lightDefHandle, &laction.renderLight );
 		}
@@ -366,31 +511,48 @@ void idEntityFx::Run( int time ) {
 		//
 		// see if it's delayed
 		//
-		if ( laction.delay ) {
+		if ( laction.delay > 0 ) {
 			if ( laction.start + (time - laction.start) < laction.start + (laction.delay * 1000) ) {
 				continue;
 			}
 		}
-
+		//ivan start - negative delay: they are meant to be started only manually
+		else if ( laction.delay < 0 ) {
+			if ( !manualFadingOut ) { continue; }
+			/*
+			if ( manualFadingOut ) {
+				if ( laction.start == 0 ) {
+					//gameLocal.Printf("laction.start = time; <-- start now \n");
+					laction.start = time; //start now
+				}
+			} else {
+				continue;
+			}
+			*/
+		}
+		//ivan end
 		//
 		// each event can have it's own delay and restart
 		//
-		int actualStart = laction.delay ? laction.start + (int)( laction.delay * 1000 ) : laction.start;
-		float pct = (float)( time - actualStart ) / (1000 * fxaction.duration );
-		if ( pct >= 1.0f ) {
-			laction.start = -1;
-			float totalDelay = 0.0f;
-			if ( fxaction.restart ) {
-				if ( fxaction.random1 || fxaction.random2 ) {
-					totalDelay = fxaction.random1 + gameLocal.random.RandomFloat() * (fxaction.random2 - fxaction.random1);
-				} else {
-					totalDelay = fxaction.delay;
-				}
-				laction.delay = totalDelay;
-				laction.start = time;
-			}
-			continue;
-		}
+		//was: int actualStart = laction.delay ? laction.start + (int)( laction.delay * 1000 ) : laction.start;
+        int actualStart = ( laction.delay > 0 )? laction.start + (int)( laction.delay * 1000 ) : laction.start;
+        if ( fxaction.duration > 0 ) { //ivan - if added: duration 0 means endless
+            float pct = (float)( time - actualStart ) / (1000 * fxaction.duration );
+            if ( pct >= 1.0f ) {
+                laction.start = -1;
+                float totalDelay = 0.0f;
+                if ( fxaction.restart ) {
+                    if ( fxaction.random1 || fxaction.random2 ) {
+                        totalDelay = fxaction.random1 + gameLocal.random.RandomFloat() * (fxaction.random2 - fxaction.random1);
+                    } else {
+                        totalDelay = fxaction.delay;
+                    }
+                    laction.delay = totalDelay;
+                    laction.start = time;
+                }
+                continue;
+            }
+        }
 
 		if ( fxaction.fire.Length() ) {
 			for( j = 0; j < fxEffect->events.Num(); j++ ) {
@@ -413,6 +575,7 @@ void idEntityFx::Run( int time ) {
 			case FX_LIGHT: {
 				if ( useAction->lightDefHandle == -1 ) {
 					if ( fxaction.type == FX_LIGHT ) {
+						//gameLocal.Printf("new light\n");
 						memset( &useAction->renderLight, 0, sizeof( renderLight_t ) );
 						useAction->renderLight.origin = GetPhysics()->GetOrigin() + fxaction.offset;
 						useAction->renderLight.axis = GetPhysics()->GetAxis();
@@ -441,6 +604,21 @@ void idEntityFx::Run( int time ) {
 						}
 					}
 				}
+				//ivan start
+				else if ( fxaction.trackOrigin ) {
+
+					//todo: add code for explicitAxis also here?
+					//gameLocal.Printf("light trackOrigin\n");
+					useAction->renderLight.origin = GetPhysics()->GetOrigin() + fxaction.offset;
+					useAction->renderLight.axis = GetPhysics()->GetAxis();
+
+					//track origin fix
+					//gameLocal.Printf("FX_LIGHT UpdateLightDef\n");
+					gameRenderWorld->UpdateLightDef( useAction->lightDefHandle, &useAction->renderLight );
+
+				}
+				//ivan end
+
 				ApplyFade( fxaction, *useAction, time, actualStart );
 				break;
 			}
@@ -498,29 +676,51 @@ void idEntityFx::Run( int time ) {
 			case FX_ATTACHENTITY:
 			case FX_PARTICLE:
 			case FX_MODEL: {
-				if ( useAction->modelDefHandle == -1 ) {
-					memset( &useAction->renderEntity, 0, sizeof( renderEntity_t ) );
-					useAction->renderEntity.origin = GetPhysics()->GetOrigin() + fxaction.offset;
-					useAction->renderEntity.axis = (fxaction.explicitAxis) ? fxaction.axis : GetPhysics()->GetAxis();
-					useAction->renderEntity.hModel = renderModelManager->FindModel( fxaction.data );
-					useAction->renderEntity.shaderParms[ SHADERPARM_RED ]		= 1.0f;
-					useAction->renderEntity.shaderParms[ SHADERPARM_GREEN ]		= 1.0f;
-					useAction->renderEntity.shaderParms[ SHADERPARM_BLUE ]		= 1.0f;
-					useAction->renderEntity.shaderParms[ SHADERPARM_TIMEOFFSET ] = -MS2SEC( time );
-					useAction->renderEntity.shaderParms[3] = 1.0f;
-					useAction->renderEntity.shaderParms[5] = 0.0f;
-					if ( useAction->renderEntity.hModel ) {
-						useAction->renderEntity.bounds = useAction->renderEntity.hModel->Bounds( &useAction->renderEntity );
+				if( laction.smoke ){
+					if ( !gameLocal.smokeParticles->EmitSmoke( laction.smoke, laction.smokeTime, gameLocal.random.CRandomFloat(),
+						GetPhysics()->GetOrigin() + fxaction.offset * (fxaction.explicitAxis ? fxaction.axis : GetPhysics()->GetAxis()), //renderEntity.origin,
+						(fxaction.explicitAxis ? fxaction.axis : GetPhysics()->GetAxis()), //renderEntity.axis,
+						timeGroup /*_D3XP*/ )){
+						laction.smokeTime = gameLocal.time; //restart
 					}
-					useAction->modelDefHandle = gameRenderWorld->AddEntityDef( &useAction->renderEntity );
-				} else if ( fxaction.trackOrigin ) {
-					useAction->renderEntity.origin = GetPhysics()->GetOrigin() + fxaction.offset;
-					useAction->renderEntity.axis = fxaction.explicitAxis ? fxaction.axis : GetPhysics()->GetAxis();
+				}else{
+					if ( useAction->modelDefHandle == -1 ) {
+						memset( &useAction->renderEntity, 0, sizeof( renderEntity_t ) );
+						useAction->renderEntity.origin = GetPhysics()->GetOrigin() + fxaction.offset;
+						useAction->renderEntity.axis = (fxaction.explicitAxis) ? fxaction.axis : GetPhysics()->GetAxis();
+						useAction->renderEntity.hModel = renderModelManager->FindModel( fxaction.data );
+						useAction->renderEntity.shaderParms[ SHADERPARM_RED ]		= 1.0f;
+						useAction->renderEntity.shaderParms[ SHADERPARM_GREEN ]		= 1.0f;
+						useAction->renderEntity.shaderParms[ SHADERPARM_BLUE ]		= 1.0f;
+						useAction->renderEntity.shaderParms[ SHADERPARM_TIMEOFFSET ] = -MS2SEC( time );
+						useAction->renderEntity.shaderParms[3] = 1.0f;
+						useAction->renderEntity.shaderParms[5] = 0.0f;
+						if ( useAction->renderEntity.hModel ) {
+							useAction->renderEntity.bounds = useAction->renderEntity.hModel->Bounds( &useAction->renderEntity );
+						}
+						useAction->modelDefHandle = gameRenderWorld->AddEntityDef( &useAction->renderEntity );
+					} else if ( fxaction.trackOrigin ) {
+
+						//ivan start
+
+						/*
+						//was:
+						useAction->renderEntity.origin = GetPhysics()->GetOrigin() + fxaction.offset;
+						useAction->renderEntity.axis = fxaction.explicitAxis ? fxaction.axis : GetPhysics()->GetAxis();
+						*/
+
+						//fix offset: must be relative to our axis!
+						useAction->renderEntity.axis = fxaction.explicitAxis ? fxaction.axis : GetPhysics()->GetAxis();
+						useAction->renderEntity.origin = GetPhysics()->GetOrigin() + fxaction.offset * useAction->renderEntity.axis;
+
+						//ivan end
 #ifdef _D3XP
-					gameRenderWorld->UpdateEntityDef( useAction->modelDefHandle, &useAction->renderEntity );
+						//track origin fix
+						gameRenderWorld->UpdateEntityDef( useAction->modelDefHandle, &useAction->renderEntity );
 #endif
+					}
+					ApplyFade( fxaction, *useAction, time, actualStart );
 				}
-				ApplyFade( fxaction, *useAction, time, actualStart );
 				break;
 			}
 			case FX_LAUNCH: {
@@ -568,6 +768,7 @@ void idEntityFx::Run( int time ) {
 					} else {
 						gameLocal.SpawnEntityDef( *projectileDef, &ent );
 						ent->SetOrigin( GetPhysics()->GetOrigin() + fxaction.offset );
+						ent->PostEventMS( &EV_Activate, 0, victim.GetEntity() ); //ff1.3 - set owner for shockwaves
 						ent->PostEventMS( &EV_Remove, ent->spawnArgs.GetInt( "duration" ) );
 					}
 				}
@@ -588,6 +789,13 @@ idEntityFx::idEntityFx() {
 	started = -1;
 	nextTriggerTime = -1;
 	fl.networkSync = true;
+
+	//ivan start
+	manualRemove		= false;
+	manualFadingOut		= false;
+	hasEndlessSounds	= false;
+	victim				= NULL;
+	//ivan end
 }
 
 /*
@@ -598,6 +806,14 @@ idEntityFx::~idEntityFx
 idEntityFx::~idEntityFx() {
 	CleanUp();
 	fxEffect = NULL;
+	//gameLocal.Printf("~idEntityFx()\n");
+
+	//ivan start
+	if ( hasEndlessSounds ) {
+		StopSound( SND_CHANNEL_ANY, false );
+		//gameLocal.Printf("StopSound!");
+	}
+	//ivan end
 }
 
 /*
@@ -623,6 +839,10 @@ void idEntityFx::Spawn( void ) {
 			PostEventMS( &EV_Activate, 0, this );
 		}
 	}
+
+	//ivan start
+	manualRemove = spawnArgs.GetBool( "manualRemove", "0" ); //don't change default behaviour
+	//ivan end
 }
 
 /*
@@ -644,6 +864,80 @@ void idEntityFx::Think( void ) {
 	RunPhysics();
 	Present();
 }
+
+//ivan start
+
+/*
+================
+idEntityFx::SetupFade
+================
+*/
+void idEntityFx::SetupFade( void ) {
+	int ieff;
+	//gameLocal.Printf("idEntityFx::SetupFade\n");
+
+	if ( !fxEffect ) {
+		return;
+	}
+
+	for( ieff = 0; ieff < fxEffect->events.Num(); ieff++ ) {
+		const idFXSingleAction& fxaction = fxEffect->events[ieff];
+		idFXLocalAction& laction = actions[ieff];
+
+		// turn on the waiting ones
+		if ( laction.delay < 0 ) {
+			laction.start = gameLocal.time;
+		}
+		// turn off the ones which are not endless
+		else if ( fxaction.duration != 0 ) { //duration = 0 means endless. Turn off -1 ones too!
+			laction.start = -1;
+		}
+
+		//turn off particles
+		if ( laction.modelDefHandle != -1 && fxaction.sibling == -1 && fxaction.type != FX_ATTACHENTITY ) {
+			laction.renderEntity.shaderParms[ SHADERPARM_PARTICLE_STOPTIME ] = MS2SEC( gameLocal.time );
+		}
+	}
+}
+
+
+/*
+================
+idEntityFx::FadeOutFx
+================
+*/
+void idEntityFx::FadeOutFx( void ) {
+	if ( started < 0 || manualFadingOut ) { //if not active or already fading
+		//gameLocal.Printf("FadeOutFxs (%d < 0 || manualFadingOut)\n", started);
+		return;
+	}
+
+	manualFadingOut = true;
+	SetupFade();
+
+	if ( hasEndlessSounds ) {
+		FadeSound( SND_CHANNEL_ANY, -60, 1 ); //fade out sounds
+		//gameLocal.Printf("fading sounds!");
+	}
+
+	if ( manualRemove ) {
+		CancelEvents( &EV_Activate ); // make sure it's not going to re-activate itself
+		CancelEvents( &EV_Fx_KillFx ); // make sure it's not going to kill or re-activate itself too soon
+		PostEventMS( &EV_Fx_KillFx, FadeDuration() );
+	}
+}
+
+/*
+================
+idEntityFx::Event_StopFx
+
+  Clears any visual fx started when item(mob) was spawned
+================
+*/
+void idEntityFx::Event_FadeFx( void ) {
+	FadeOutFx();
+}
+//ivan end
 
 /*
 ================
@@ -688,7 +982,7 @@ void idEntityFx::Event_Trigger( idEntity *activator ) {
 		return;
 	}
 
-	float		fxActionDelay;
+	float fxActionDelay;
 	const char *fx;
 
 	if ( gameLocal.time < nextTriggerTime ) {
@@ -696,9 +990,21 @@ void idEntityFx::Event_Trigger( idEntity *activator ) {
 	}
 
 	if ( spawnArgs.GetString( "fx", "", &fx) ) {
-		Setup( fx );
-		Start( gameLocal.time );
-		PostEventMS( &EV_Fx_KillFx, Duration() );
+
+		//ivan start
+		if ( manualRemove ) { //new case
+			if ( started >= 0 && !manualFadingOut && spawnArgs.GetBool( "toggle", "0") ) { //if it is active && toggle is set
+				FadeOutFx();
+			} else {
+				Setup( fx );
+				Start( gameLocal.time ); //don't autokill
+			}
+		} else { //old case
+		//ivan end
+			Setup( fx );
+			Start( gameLocal.time );
+			PostEventMS( &EV_Fx_KillFx, Duration() );
+		}
 		BecomeActive( TH_THINK );
 	}
 
@@ -712,14 +1018,42 @@ void idEntityFx::Event_Trigger( idEntity *activator ) {
 	PostEventSec( &EV_Fx_Action, fxActionDelay, activator );
 }
 
+//ivan start
+void idEntityFx::StartFxUtility( idEntityFx *nfx, const idVec3 *useOrigin, const idMat3 *useAxis, idEntity *ent, bool bind, bool orientated, jointHandle_t jointnum ){
+	nfx->victim = ent; //ff1.3
 
+	if ( nfx->Joint() && *nfx->Joint() ) { //"bindto" keyword
+		nfx->BindToJoint( ent, nfx->Joint(), orientated ); //ivan - orientated
+		nfx->SetOrigin( vec3_origin );
+	}
+	else if ( bind && jointnum != INVALID_JOINT ) {
+		//gameLocal.Printf("StartFx --> Joint ok, orientated: %d\n", (orientated?1:0) );
+		nfx->SetAxis( (useAxis) ? *useAxis : ent->GetPhysics()->GetAxis() );
+		nfx->BindToJoint( ent, jointnum, orientated );
+		nfx->SetOrigin( vec3_origin );
+	}else {
+		//gameLocal.Printf("StartFx --> no Joint, orientated: %d\n", (orientated?1:0) );
+		nfx->SetOrigin( (useOrigin) ? *useOrigin : ent->GetPhysics()->GetOrigin() );
+		nfx->SetAxis( (useAxis) ? *useAxis : ent->GetPhysics()->GetAxis() );
+
+		if ( bind ) {
+			// never bind to world spawn
+			if ( ent != gameLocal.world ) {
+				//nfx->Bind( ent, true );
+				nfx->Bind( ent, orientated ); //ivan
+			}
+		}
+	}
+	nfx->Show();
+}
+//ivan end
 /*
 ================
 idEntityFx::StartFx
 ================
 */
-idEntityFx *idEntityFx::StartFx( const char *fx, const idVec3 *useOrigin, const idMat3 *useAxis, idEntity *ent, bool bind ) {
-
+//idEntityFx *idEntityFx::StartFx( const char *fx, const idVec3 *useOrigin, const idMat3 *useAxis, idEntity *ent, bool bind ) {
+idEntityFx *idEntityFx::StartFx( const char *fx, const idVec3 *useOrigin, const idMat3 *useAxis, idEntity *ent, bool bind, bool orientated, jointHandle_t jointnum ) { //ivan
 	if ( g_skipFX.GetBool() || !fx || !*fx ) {
 		return NULL;
 	}
@@ -728,21 +1062,13 @@ idEntityFx *idEntityFx::StartFx( const char *fx, const idVec3 *useOrigin, const 
 	args.SetBool( "start", true );
 	args.Set( "fx", fx );
 	idEntityFx *nfx = static_cast<idEntityFx *>( gameLocal.SpawnEntityType( idEntityFx::Type, &args ) );
-	if ( nfx->Joint() && *nfx->Joint() ) {
-		nfx->BindToJoint( ent, nfx->Joint(), true );
-		nfx->SetOrigin( vec3_origin );
-	} else {
-		nfx->SetOrigin( (useOrigin) ? *useOrigin : ent->GetPhysics()->GetOrigin() );
-		nfx->SetAxis( (useAxis) ? *useAxis : ent->GetPhysics()->GetAxis() );
-	}
 
-	if ( bind ) {
-		// never bind to world spawn
-		if ( ent != gameLocal.world ) {
-			nfx->Bind( ent, true );
-		}
+	//ivan start - code moved in StartFxUtility
+	if ( nfx ) {
+		StartFxUtility( nfx, useOrigin, useAxis, ent, bind, orientated, jointnum );
 	}
-	nfx->Show();
+	//ivan end
+
 	return nfx;
 }
 
@@ -819,6 +1145,455 @@ idTeleporter::Event_DoAction
 ================
 */
 void idTeleporter::Event_DoAction( idEntity *activator ) {
-	idAngles a( 0, spawnArgs.GetFloat( "angle" ), 0 );
-	activator->Teleport( GetPhysics()->GetOrigin(), a, NULL );
+	float angle;
+	//idPlayer * player;
+	idAngles ang; //ff1.3 - was: idAngles a( 0, spawnArgs.GetFloat( "angle" ), 0 );
+
+	//ff1.1 BAD FIX start - see also misc.cpp
+	if ( !activator ) { //ff1.1
+		gameLocal.Warning("ff1.1 teleport FIX\n");
+		activator = gameLocal.GetLocalPlayer();
+	}
+	//ff1.1 BAD FIX end
+
+	//ff1.3 start
+	if ( spawnArgs.GetBool( "preserve_angle" ) && activator->IsType( idPlayer::Type ) ) {
+		ang = static_cast< idPlayer * >( activator )->viewAngles;
+	} else {
+		ang.pitch = ang.roll = 0.0f;
+		ang.yaw = spawnArgs.GetFloat( "angle" );
+	}
+
+	StartSound( "snd_teleport", SND_CHANNEL_ANY, 0, false, NULL );
+
+	if ( spawnArgs.GetBool( "fadeview" ) && activator->IsType( idPlayer::Type ) ) {
+		static_cast< idPlayer * >( activator )->playerView.Fade( vec4_zero, SEC2MS( 1.0f ) );
+	}
+	//ff1.3 end
+
+	activator->Teleport( GetPhysics()->GetOrigin(), ang, NULL );
 }
+
+//ivan start
+/*
+===============================================================================
+
+  idDamagingFx
+
+===============================================================================
+*/
+/*
+static const char *dmgFxTypeString[ NUM_DMGFX_TYPES ] = {
+	"<none>",
+	"flames",
+	"electro",
+	"toxic"
+};
+*/
+
+
+CLASS_DECLARATION( idEntityFx, idDamagingFx )
+END_CLASS
+
+/*
+================
+idDamagingFx::idDamagingFx
+================
+*/
+idDamagingFx::idDamagingFx() {
+	nextDamageTime		= 0;
+	endDamageTime		= 0;
+	damageRate			= 0;
+	attacker			= NULL;
+	//victim				= NULL;
+	damageDefString		= "";
+	prtFadeinTime		= 0;
+	prtTotalTime		= 0;
+	aliveTime			= 0;
+	deadTime			= 0;
+	victimShellHandle	= -1;
+	victimShellTime		= 0;
+	victimShellCompensationTime = 0;
+	victimShellCompensationValue = 0;
+	victimShellSkin		= NULL;
+}
+
+/*
+================
+idDamagingFx::~idDamagingFx
+================
+*/
+idDamagingFx::~idDamagingFx() {
+	// remove the shell
+	if ( victimShellHandle != -1 ) {
+		gameRenderWorld->FreeEntityDef( victimShellHandle );
+	}
+}
+
+/*
+================
+idDamagingFx::Spawn
+================
+*/
+void idDamagingFx::Spawn( void ) {
+	//idEntity *ent;
+	//const char *entname;
+
+	//gameLocal.Printf("idDamagingFx::Spawn\n");
+	damageDefString = spawnArgs.GetString( "def_damage", "damage_damagingFx" );
+
+	//damage def must be valid
+	const idDict *damageDef = gameLocal.FindEntityDefDict( damageDefString.c_str() );
+	if ( !damageDef ) {
+		gameLocal.Error( "Unknown damageDef '%s' for '%s'", damageDefString.c_str(), name.c_str() );
+	}
+
+	//damageRate
+	damageRate = SEC2MS( spawnArgs.GetFloat( "damageRate", "1" ) );
+	if ( damageRate <= 0 ) {
+		damageRate = 1000; //1sec default
+	}
+
+	//time settings
+	prtFadeinTime = SEC2MS( spawnArgs.GetFloat( "prtFadeinTime" ) );
+	prtTotalTime = SEC2MS( spawnArgs.GetFloat( "prtTotalTime" ) );
+	aliveTime = SEC2MS( spawnArgs.GetFloat( "aliveTime" ) );
+	deadTime = SEC2MS( spawnArgs.GetFloat( "deadTime", "-1" ) ); //-1  = no effect on fx lifetime
+
+	if ( deadTime > prtTotalTime ) {
+		gameLocal.Error( "deadTime > prtTotalTime for '%s'", name.c_str() );
+	}
+	if ( aliveTime > prtTotalTime ) {
+		gameLocal.Error( "aliveTime > prtTotalTime for '%s'", name.c_str() );
+	}
+    /*
+	//get victim ent
+	if ( spawnArgs.GetString( "victim", NULL, &entname ) ) {
+		ent = gameLocal.FindEntity( entname );
+		if ( !ent ) {
+			gameLocal.Warning( "Couldn't find entity '%s' specified in 'victim' key in entity '%s'", entname, name.c_str() );
+		}
+		victim = ent;
+	}
+
+	//get attacker ent (optional)
+	if ( spawnArgs.GetString( "attacker", NULL, &entname ) ) {
+		ent = gameLocal.FindEntity( entname );
+		if ( !ent ) {
+			gameLocal.Warning( "Couldn't find entity '%s' specified in 'attacker' key in entity '%s'", entname, name.c_str() );
+		}
+		attacker = ent;
+	}
+	*/
+}
+
+/*
+================
+idDamagingFx::SetAttacker
+================
+*/
+void idDamagingFx::SetAttacker( idEntity *ent ) {
+	attacker = ent;
+}
+
+/*
+================
+idDamagingFx::VictimKilled
+================
+*/
+void idDamagingFx::VictimKilled( void ) {
+	//gameLocal.Printf("idDamagingFx::VictimKilled at %d\n", gameLocal.time);
+	if ( deadTime > 0 ) {
+		Restart();
+	} else if ( deadTime == 0 ) {
+		FadeOutFx();
+	}
+}
+
+/*
+================
+idDamagingFx::Restart
+================
+*/
+void idDamagingFx::Restart( void ) {
+	//gameLocal.Printf("idDamagingFx::Restart at %d\n", gameLocal.time);
+	//return;
+
+	if ( victimShellTime + prtFadeinTime > gameLocal.time ) {
+		//gameLocal.Printf("ignore restart if the fx is just fading in at %d\n", gameLocal.time);
+		return; //ignore restart if the fx is just fading in
+	}
+
+	CancelEvents( &EV_Activate );
+	CancelEvents( &EV_Fx_KillFx );
+
+	ResetShaderParms();
+
+	nextTriggerTime = 0; //make sure the event is accepted
+	PostEventMS( &EV_Activate, 0, this );
+}
+
+/*
+================
+idDamagingFx::Start
+================
+*/
+void idDamagingFx::Start( int time ) { //time is usually the current time
+	//gameLocal.Printf("idDamagingFx::Start at %d\n", gameLocal.time);
+
+	//aligment offset. We don't want the prt to 'jump'
+	int alignmentOffset = 0;
+
+	//victim must be valid
+	if ( !victim.GetEntity() ) {
+		gameLocal.Warning( "No 'victim' for entity '%s'", name.c_str() );
+		return;
+	}
+
+	//different time for dead victims if killedTime is set
+	if ( deadTime >= 0 && victim.GetEntity()->health <= 0 ) {
+		//skin smoke time
+		int prtExcessTime = prtTotalTime - deadTime;
+		if ( endDamageTime == 0 || manualFadingOut ) { //new or already fading out
+			//gameLocal.Printf("killed - new or already fading out at %d\n", gameLocal.time);
+			victimShellTime = time;
+			victimShellCompensationTime = time + prtFadeinTime; //wait for fadein to complete
+			victimShellCompensationValue = -prtExcessTime; //jump fw so the prt ends early
+		} else { //restart
+			alignmentOffset = (time - victimShellTime)%prtFadeinTime;
+			//gameLocal.Printf("killed - restart at %d with alignmentOffset %d\n", gameLocal.time, alignmentOffset);
+			//victimShellTime = ...; //don't jump and don't overwrite old value
+			victimShellCompensationTime = victimShellTime + deadTime; //wait for the last moment
+			victimShellCompensationValue = time - victimShellTime - alignmentOffset - prtExcessTime; //jump back correct # of periods + delta
+		}
+
+		//end time
+		endDamageTime = time + deadTime - alignmentOffset; //remove the alignmentOffset so lifetime is aligned to the skin prt
+
+		/*
+		//if victim died and a jump was scheduled too far away in time, force the jump now
+		if ( victimShellCompensationTime < time ) {
+			gameLocal.Printf("killed - victimShellCompensationTime fix at %d\n", gameLocal.time);
+			victimShellCompensationTime = time;
+		}
+		//gameLocal.Printf("endDamageTime = time + killedTime at %d\n", gameLocal.time);
+		*/
+	} else {
+		//skin smoke time
+		int prtExcessTime = prtTotalTime - aliveTime;
+		if ( endDamageTime == 0 || manualFadingOut ) { //new or already fading out
+			//gameLocal.Printf("new or already fading out at %d\n", gameLocal.time);
+			victimShellTime = time;
+			victimShellCompensationTime = time + aliveTime; //wait for the last moment
+			victimShellCompensationValue = -prtExcessTime;  //jump fw so the prt ends early
+		} else { //restart
+			/*
+			|---| = prtFadeinTime, i.e: 1 period (example: 1p, period = 3t, time unit)
+
+			Example: particle (3t * 4periods) long
+
+			|<-- start time = 0t
+			|   |<-- period 1 (fadein) completes at 3t
+			|       |<-- period 2 completes at 6t
+			|           | <-- period 3 completes at 9t
+			|               | <-- period 4 completes at 12t
+
+			|  /|abc|def|ghi|\
+			| / |   |   |   | \
+			|/  |   |   |   |  \
+			|
+
+			Restart requested at 7t: alignmentOffset = 1t
+
+			v2 -  delay jumps in time as much as possible so that multiple restarts may result in only 1 final jump which is aligned to the existing period
+			|         |<-- restart at 7t. don't change particle time
+			|               |<-- JUMP back in time at 12t! this when the original particle was meant to end. Jump back # periods to add((restartTime-oldTime)/prtFadeinTime) = (7t-0t)/3t = 2 periods = 6t = (restartTime-oldTime-alignmentOffset) = 7-0-1
+			|                so we avoid the fadein and the total prt lifetime is = the correct lenght (actually, is 'alignmentOffset' shorter)
+			|
+			|               (j)
+			|   |   | ef|ghi|def|ghi|\
+			|   |   |   |   |   |   | \
+			|   |   |   |   |   |   |  \
+			|
+			|            |<-- restart2 at 10t. don't change particle time. alignmentOffset = 1t
+			|               |<-- JUMP back in time at 12t! this when the original particle was meant to end. Jump back # periods to add((restartTime-oldTime)/prtFadeinTime) = (10t-0t)/3t = 3 periods = 9t = (restartTime-oldTime-alignmentOffset) = 10-0-1
+			|                so we avoid the fadein and the total prt lifetime is of the correct lenght (actually, is 'alignmentOffset' shorter)
+			|               (j)
+			|   |   |   | hi|abc|def|ghi|\
+			|   |   |   |   |   |   |   | \
+			|   |   |   |   |   |   |   |  \
+
+			*/
+
+			alignmentOffset = (time - victimShellTime)%prtFadeinTime;
+			//gameLocal.Printf("restart at %d with alignmentOffset %d\n", gameLocal.time, alignmentOffset);
+			//victimShellTime = ...; //don't jump and don't overwrite old value
+			victimShellCompensationTime = victimShellTime + aliveTime; //wait for the last moment
+			victimShellCompensationValue = time - victimShellTime - alignmentOffset - prtExcessTime; //jump back correct # of periods
+		}
+
+		//end time
+		if ( aliveTime > 0 ) {
+			endDamageTime = time + aliveTime - alignmentOffset; //remove the alignmentOffset so lifetime is aligned to the skin prt
+		} else {
+			endDamageTime = -1; //-1 is endless
+		}
+	}
+	//gameLocal.Printf("victimShellTime = %d\n", victimShellTime);
+
+	//damageRate
+	nextDamageTime = time + damageRate;
+
+	//start the fx
+	idEntityFx::Start( time );
+}
+
+/*
+================
+idDamagingFx::Think
+================
+*/
+void idDamagingFx::Think( void ) {
+	//gameLocal.Printf("idDamagingFx::Think\n");
+	idEntityFx::Think();
+	if ( started > 0 ) { //is started
+		idEntity* victimEnt = victim.GetEntity();
+		if ( !victimEnt || victimEnt->IsHidden() ) { //hide
+			// remove the shell
+			if ( victimShellHandle != -1 ) {
+				gameRenderWorld->FreeEntityDef( victimShellHandle );
+				victimShellHandle = -1;
+			}
+			//fade?
+			if ( !manualFadingOut ) {
+				FadeOutFx();
+			}
+		} else {
+			if ( !manualFadingOut ) { //not fading
+				if ( endDamageTime > 0 && endDamageTime <= gameLocal.time ) { //timed out
+					FadeOutFx();
+				} else if ( nextDamageTime < gameLocal.time ) { //damage time
+					nextDamageTime = damageRate + gameLocal.time;
+					//gameLocal.Printf("Damage\n");
+					victimEnt->Damage( this, (victimEnt->health > 0) ? attacker.GetEntity() : this, vec3_origin, damageDefString.c_str() , 1.0f, INVALID_JOINT );
+				}
+			}
+			//update shell - todo move in present()?
+			if ( victimShellSkin ) {
+				//gameLocal.Printf("shell at %d\n", gameLocal.time);
+				if ( victimShellCompensationTime > 0 && victimShellCompensationTime < gameLocal.time ) {
+					victimShellCompensationTime = 0;
+					victimShellTime += victimShellCompensationValue; //compensate for skipped time
+					//gameLocal.Printf("CompensationTime at %d\n", gameLocal.time);
+				}
+
+				renderEntity_t	shell;
+				shell = *victimEnt->GetRenderEntity();
+				shell.entityNum = victimEnt->entityNumber;
+				shell.customSkin = victimShellSkin;
+				shell.shaderParms[SHADERPARM_TIMEOFFSET] = -MS2SEC( victimShellTime ); //victimShellTime
+				shell.shaderParms[SHADERPARM_DIVERSITY] = 0.0f;
+
+				if ( victimShellHandle == -1 ) {
+					victimShellHandle = gameRenderWorld->AddEntityDef( &shell );
+				} else {
+					gameRenderWorld->UpdateEntityDef( victimShellHandle, &shell );
+				}
+			}
+		}
+	}
+}
+
+/*
+================
+idDamagingFx::StartDamagingFx
+todo:concatenazione nome fatta in actor, dove ragiona solo per nome + callback su identity per start/stop overridate in ai.
+leggono chiavi skellskin e smoke da fx e cercano loro valori su ai
+sost default con small
+================
+*/
+idDamagingFx *idDamagingFx::StartDamagingFx( const char *defName, idEntity *attackerEnt, idEntity *victimEnt ) {
+	//gameLocal.Printf("idDamagingFx::StartDamagingFx at %d\n", gameLocal.time);
+	idEntity* ent;
+	idDamagingFx* nfx;
+	const char	*jointName;
+	const char	*skinName;
+
+	if ( g_skipFX.GetBool() /*|| type <= DMGFX_NONE || type >= NUM_DMGFX_TYPES*/ || !victimEnt ) {
+		return NULL;
+	}
+
+	const idDeclEntityDef *fxDef = gameLocal.FindEntityDef( defName, false );
+	if ( fxDef == NULL ) {
+		gameLocal.Warning( "No def '%s' found for idDamagingFx", defName );
+		return NULL;
+	}
+
+	if ( gameLocal.SpawnEntityDef( fxDef->dict, &ent, false ) && ent && ent->IsType( idDamagingFx::Type ) ) {
+		nfx	= static_cast<idDamagingFx*>(ent);
+		//nfx->victim = victimEnt; //moved to StartFxUtility
+		nfx->attacker = attackerEnt;
+
+		if ( victimEnt->spawnArgs.GetString( nfx->spawnArgs.GetString("key_joint"), NULL, &jointName ) ) {
+			StartFxUtility( nfx, NULL, &mat3_identity, victimEnt, true, false, victimEnt->GetAnimator()->GetJointHandle( jointName ) );
+		} else {
+			StartFxUtility( nfx, &(victimEnt->GetPhysics()->GetAbsBounds().GetCenter()), &mat3_identity, victimEnt, true, false );
+		}
+
+		if ( victimEnt->spawnArgs.GetString( nfx->spawnArgs.GetString("key_skin"), NULL, &skinName ) ) {
+			nfx->victimShellSkin = declManager->FindSkin( skinName );
+		}
+
+		return nfx;
+	} else {
+		gameLocal.Error( "Could not spawn idDamagingFx" );
+		return NULL;
+	}
+}
+
+/*
+================
+idDamagingFx::Save
+================
+*/
+void idDamagingFx::Save( idSaveGame *savefile ) const {
+	savefile->WriteString( damageDefString );
+	attacker.Save( savefile );
+	//victim.Save( savefile );
+	savefile->WriteInt( nextDamageTime );
+	savefile->WriteInt( damageRate );
+	savefile->WriteInt( endDamageTime );
+	savefile->WriteInt( prtFadeinTime );
+	savefile->WriteInt( prtTotalTime );
+	savefile->WriteInt( aliveTime );
+	savefile->WriteInt( deadTime );
+	savefile->WriteInt( victimShellHandle );
+	savefile->WriteInt( victimShellTime );
+	savefile->WriteInt( victimShellCompensationTime );
+	savefile->WriteInt( victimShellCompensationValue );
+	savefile->WriteSkin( victimShellSkin );
+}
+
+/*
+================
+idDamagingFx::Restore
+================
+*/
+void idDamagingFx::Restore( idRestoreGame *savefile ) {
+	savefile->ReadString( damageDefString );
+	attacker.Restore( savefile );
+	//victim.Restore( savefile );
+	savefile->ReadInt( nextDamageTime );
+	savefile->ReadInt( damageRate );
+	savefile->ReadInt( endDamageTime );
+	savefile->ReadInt( prtFadeinTime );
+	savefile->ReadInt( prtTotalTime );
+	savefile->ReadInt( aliveTime );
+	savefile->ReadInt( deadTime );
+	savefile->ReadInt( victimShellHandle );
+	savefile->ReadInt( victimShellTime );
+	savefile->ReadInt( victimShellCompensationTime );
+	savefile->ReadInt( victimShellCompensationValue );
+	savefile->ReadSkin( victimShellSkin );
+}
+//ivan end

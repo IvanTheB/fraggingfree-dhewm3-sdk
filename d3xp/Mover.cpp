@@ -3627,7 +3627,7 @@ idDoor::AllowPlayerOnly
 ================
 */
 bool idDoor::AllowPlayerOnly( idEntity *ent ) {
-	if ( playerOnly && !ent->IsType(idPlayer::Type) ) {
+	if ( playerOnly && !ent->IsType(idPlayer::Type) && !ent->IsType( idAI_Rideable::Type ) ) { //ff1.3 idAI_Rideable added
 		return false;
 	}
 
@@ -3872,7 +3872,7 @@ void idDoor::Event_Touch( idEntity *other, trace_t *trace ) {
 #endif
 		}
 	} else if ( sndTrigger && trace->c.id == sndTrigger->GetId() ) {
-		if ( other && other->IsType( idPlayer::Type ) && IsLocked() && gameLocal.slow.time > nextSndTriggerTime ) {
+		if ( other && (other->IsType( idPlayer::Type ) || other->IsType( idAI_Rideable::Type )) && IsLocked() && gameLocal.slow.time > nextSndTriggerTime ) { //ff1.3: idAI_Rideable added
 			StartSound( "snd_locked", SND_CHANNEL_ANY, 0, false, NULL );
 			nextSndTriggerTime = gameLocal.slow.time + 10000;
 		}

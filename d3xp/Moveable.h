@@ -219,4 +219,34 @@ private:
 	void					Event_TriggerTargets();
 };
 
+//ff1.3 start
+class idEnergySphere : public idMoveable {
+public:
+	CLASS_PROTOTYPE( idEnergySphere );
+
+							idEnergySphere( void );
+	//						~idEnergySphere( void );
+
+	void					Spawn( void );
+
+	void					Save( idSaveGame *savefile ) const;
+	void					Restore( idRestoreGame *savefile );
+
+	virtual void			Think( void );
+	virtual bool			Collide( const trace_t &collision, const idVec3 &velocity );
+	void					StartGrabbed( void );
+	void					StopGrabbed( void );
+
+private:
+	int						nextKickTime;
+	const idDeclParticle *	damageSmoke;
+	idEntityPtr<idLight>	light;
+
+	void					Kick( idPlayer* player );
+	void					UpdateColor( void );
+
+	void					Event_PostSpawn( void );
+};
+//ff1.3 end
+
 #endif /* !__GAME_MOVEABLE_H__ */

@@ -58,8 +58,16 @@ typedef enum {
 	WP_LOWERING
 } weaponStatus_t;
 
+//ff1.3 start - values must match script ones!
+enum {
+	WP_SPREADMODE_RANDOM			= 0,	//default
+	WP_SPREADMODE_STEP				= 1		//turrican style spread
+	//WP_SPREADMODE_PARALLEL_SPREAD	= 2	//parallel projs. Spread is the offset
+};
+//ff1.3 end
+
 typedef int ammo_t;
-static const int AMMO_NUMTYPES = 16;
+static const int AMMO_NUMTYPES = 32; //ff1.3 - was: 16
 
 class idPlayer;
 
@@ -68,14 +76,19 @@ static const int LIGHTID_VIEW_MUZZLE_FLASH = 100;
 
 class idMoveableItem;
 
+/*
+//D3XP particle code
 #ifdef _D3XP
 typedef struct {
 	char			name[64];
 	char			particlename[128];
 	bool			active;
+	//bool			activateOnShow; //ff1.1
 	int				startTime;
 	jointHandle_t	joint;			//The joint on which to attach the particle
 	bool			smoke;			//Is this a smoke particle
+	bool			isViewDir;		//ff1.3 - use view dir instead of joint dir 
+	bool			isDirFix;		//ff1.3 - change axis so that up is forward
 	const idDeclParticle* particle;		//Used for smoke particles
 	idFuncEmitter*  emitter;		//Used for non-smoke particles
 } WeaponParticle_t;
@@ -83,12 +96,76 @@ typedef struct {
 typedef struct {
 	char			name[64];
 	bool			active;
+	//bool			activateOnShow; //ff1.1
 	int				startTime;
 	jointHandle_t	joint;
 	int				lightHandle;
 	renderLight_t	light;
 } WeaponLight_t;
 #endif
+*/
+
+
+#ifdef _DENTONMOD
+
+struct particleFlags_s {
+	bool		isActive			: 1;		// Is the particle active	
+	bool		isSmoke				: 1;		// Is this a smoke particle
+	bool		isContinuous		: 1;		// Is the effect continuous
+	bool		isOffset			: 1;		// Is new Offset needed
+	bool		isDir				: 1;		// Is new Direction needed
+	bool		isOnWorldModel		: 1;		// Is this effect intended for world model only
+	bool		isUpdateJoint		: 1;
+	bool		isViewDir			: 1;		//ivan - use player view dir even if it's using a joint. This can be still rotated by the usual "dir" key. 
+};
+
+typedef struct {
+	char			name[64];
+	char			particlename[128];
+	int				startTime;
+	idVec3			offset;			//Sometimes you cant find proper joint, then use offset along with muzzle bone
+	idVec3			dir;
+	jointHandle_t	joint;			//The joint on which to attach the particle
+
+	particleFlags_s particleFlags;	// flags
+    
+	const idDeclParticle* particle;		//Used for smoke particles
+	renderEntity_t renderEntity;
+	qhandle_t modelDefHandle;
+	//idFuncEmitter*  emitter;		//Used for non-smoke particles
+} WeaponParticle_t;
+
+
+struct lightFlags_s {
+	bool		isActive		: 1;		// Is the particle active	
+	bool		isAlwaysOn		: 1;		// Is this light always on
+	bool		isOffset		: 1;		// Is new Offset needed
+	bool		isDir			: 1;		// Is new Direction needed
+	bool		isOnWorldModel	: 1;		// Is this light intended for world model only
+};
+
+typedef struct {
+	char			name[64];
+	int				startTime; 
+	int				endTime;
+	int				lightHandle;
+	idVec3			offset;			//If weapons does not have bones in proper places for some effect use this
+	idVec3			dir;			//If the desired bone is not pointing in proper direction use this to fix it.
+									// Note that the dir should be vector representing X-axis of the bone.
+	lightFlags_s	lightFlags;
+	jointHandle_t	joint;
+	renderLight_t	light;
+} WeaponLight_t;
+//----------------------------------------------
+#endif
+
+//projectile types //ff1.3
+enum {
+	PROJ_TYPE_PRI,
+	PROJ_TYPE_SEC,
+	PROJ_TYPE_PW,
+	MAX_PROJ_TYPES
+};
 
 class idWeapon : public idAnimatedEntity {
 public:
@@ -117,6 +194,7 @@ public:
 
 	// GUIs
 	const char *			Icon( void ) const;
+	const char *			IconPw( void ) const; //ff1.3
 	void					UpdateGUI( void );
 
 	virtual void			SetModel( const char *modelname );
@@ -138,6 +216,8 @@ public:
 	void					OwnerDied( void );
 	void					BeginAttack( void );
 	void					EndAttack( void );
+	void					BeginSpecialFunction( bool );	// Added by Clone JCD 
+	void					EndSpecialFunction( void );		// Added by Clone JCD 
 	bool					IsReady( void ) const;
 	bool					IsReloading( void ) const;
 	bool					IsHolstered( void ) const;
@@ -183,6 +263,12 @@ public:
 	int						GetGrabberState() const;
 #endif
 
+	//ff1.3 start
+	int						PwAmmoAvailable( void ) const;
+	void					GetMuzzlePos( idVec3 &pos ); //const
+	void					MuzzleKick( void );
+	//ff1.3 end
+
 	virtual void			WriteToSnapshot( idBitMsgDelta &msg ) const;
 	virtual void			ReadFromSnapshot( const idBitMsgDelta &msg );
 
@@ -200,6 +286,8 @@ private:
 	// script control
 	idScriptBool			WEAPON_ATTACK;
 	idScriptBool			WEAPON_RELOAD;
+	idScriptBool			WEAPON_SPECIAL;  // For weapon special function, added by clone JCD
+	idScriptBool			WEAPON_SPECIAL_HOLD;  // For weapon special function, added by clone JCD	idScriptBool			WEAPON_RELOAD;
 	idScriptBool			WEAPON_NETRELOAD;
 	idScriptBool			WEAPON_NETENDRELOAD;
 	idScriptBool			WEAPON_NETFIRING;
@@ -229,8 +317,11 @@ private:
 	bool					hide;
 	bool					disabled;
 
+	//ff1.3 - store the weapon index to access pw ammo
+	int						weaponIndex; 
+
 	// berserk
-	int						berserk;
+	//int						berserk;
 
 	// these are the player render view parms, which include bobbing
 	idVec3					playerViewOrigin;
@@ -251,12 +342,16 @@ private:
 	// do not have to be copied across the DLL boundary when entities are spawned
 	const idDeclEntityDef *	weaponDef;
 	const idDeclEntityDef *	meleeDef;
+
 	idDict					projectileDict;
+
+	//idBounds				meleeBounds; //ff1.3
 	float					meleeDistance;
 	idStr					meleeDefName;
 	idDict					brassDict;
 	int						brassDelay;
 	idStr					icon;
+	idStr					iconPw; //ff1.3
 
 	// view weapon gui light
 	renderLight_t			guiLight;
@@ -343,6 +438,21 @@ private:
 	const idMaterial *		nozzleGlowShader;	// shader for glow light
 	float					nozzleGlowRadius;	// radius of glow light
 
+#ifdef _SHELLWEAPON
+	// for item pulse effect
+	int						itemShellHandle;
+	const idMaterial *		shellMaterial;
+
+	bool					UpdateRenderEntity( renderEntity_s *renderEntity, const renderView_t *renderView ) const;
+	static bool				ModelCallback( renderEntity_s *renderEntity, const renderView_t *renderView );
+
+	// used to update the item pulse effect
+	//mutable bool			inView;
+	//mutable int				inViewTime;
+	//mutable int				lastCycle;
+	mutable int				lastRenderViewTime;
+#endif
+
 	// weighting for viewmodel angles
 	int						weaponAngleOffsetAverages;
 	float					weaponAngleOffsetScale;
@@ -359,6 +469,21 @@ private:
 	void					MuzzleRise( idVec3 &origin, idMat3 &axis );
 	void					UpdateNozzleFx( void );
 	void					UpdateFlashPosition( void );
+
+
+#ifdef _DENTONMOD
+	void					InitWeaponFx( void );		
+	void					StopWeaponFx( void );		
+	void					UpdateWeaponFx( void );
+	void					StartWeaponParticle( const char* name );
+	void					StopWeaponParticle( const char* name );
+
+	bool					ChangeProjectileDef( int number );// New
+#endif 
+
+	//ff1.3 start
+	//idEntity				*GetAimTarget( void );
+	//ff1.3 end
 
 	// script events
 	void					Event_Clear( void );
@@ -388,8 +513,8 @@ private:
 	void					Event_GetLightParm( int parmnum );
 	void					Event_SetLightParm( int parmnum, float value );
 	void					Event_SetLightParms( float parm0, float parm1, float parm2, float parm3 );
-	void					Event_LaunchProjectiles( int num_projectiles, float spread, float fuseOffset, float launchPower, float dmgPower );
-	void					Event_CreateProjectile( void );
+	void					Event_LaunchProjectiles( int projType, int num_projectiles, float spread, float fuseOffset, float launchPower, float dmgPower, int spreadMode );
+	void					Event_CreateProjectile( int projType );
 	void					Event_EjectBrass( void );
 	void					Event_Melee( void );
 	void					Event_GetWorldModel( void );
@@ -399,6 +524,38 @@ private:
 	void					Event_IsInvisible( void );
 	void					Event_NetEndReload( void );
 
+	//ff1.1 start
+	//void					Event_SetPwState( int value );
+	//void					Event_GetPwState( void );
+	//void					Event_AddAmmo( int amount );
+	void					Event_UsePwAmmo( int amount );
+	void					Event_GetPainKillerProjectile( void );
+	void					Event_GetRemoteGrenadeProjectile( void );
+	//ff1.1 end
+
+	//ff1.3 start
+	void					Event_PwAmmoAvailable( void );
+	void					Event_UseSkullAmmo( int mode, int amount );
+	void					Event_SkullAmmoAvailable( int mode );
+	void					Event_GetSkullMode( void );
+	void					Event_SetSkullMode( int number );
+	void					Event_GetAimTarget( void );
+	void					Event_GetEnemyTarget( void );
+	void					Event_UpdateLockCursor( idEntity* target );
+	void					Event_HasAmmo( void );
+	void					Event_AnyFireButtonPressed( void );
+	
+#ifdef _DENTONMOD
+	void					Event_SetZoom( int mode );
+	void					Event_IsAdvancedZooming( void );
+	/*
+	void					Event_GetProjectileType( void );
+	void					Event_ChangeProjectileDef( int number );
+	*/
+#endif
+	
+	//ff1.3 end
+
 #ifdef _D3XP
 	idGrabber				grabber;
 	int						grabberState;
@@ -406,7 +563,7 @@ private:
 	void					Event_Grabber( int enable );
 	void					Event_GrabberHasTarget( void );
 	void					Event_GrabberSetGrabDistance( float dist );
-	void					Event_LaunchProjectilesEllipse( int num_projectiles, float spreada, float spreadb, float fuseOffset, float power );
+	void					Event_LaunchProjectilesEllipse( int projType, int num_projectiles, float spreada, float spreadb, float fuseOffset, float power );
 	void					Event_LaunchPowerup( const char* powerup, float duration, int useAmmo );
 
 	void					Event_StartWeaponSmoke();
@@ -418,6 +575,7 @@ private:
 	void					Event_StartWeaponLight( const char* name);
 	void					Event_StopWeaponLight( const char* name);
 #endif
+
 };
 
 ID_INLINE bool idWeapon::IsLinked( void ) {

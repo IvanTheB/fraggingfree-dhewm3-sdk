@@ -939,7 +939,7 @@ void idAnim::CallFrameCommands( idEntity *ent, int from, int to ) const {
 					break;
 				}
 				case FC_TRIGGER_FX: {
-					ent->ProcessEvent( &AI_TriggerFX, modelDef->GetJointName( command.index ), command.string->c_str() );
+					ent->ProcessEvent( &EV_TriggerFX, modelDef->GetJointName( command.index ), command.string->c_str() ); //ff1.1 was: AI_TriggerFX
 					break;
 				}
 				case FC_START_EMITTER: {

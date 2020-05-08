@@ -103,6 +103,7 @@ private:
 	idStr				requires;
 	int					removeItem;
 	bool				touchClient;
+	bool				touchRideable; //ff1.3 - for vehicles and rideableAI
 	bool				touchOther;
 	bool				triggerFirst;
 	bool				triggerWithSelf;
@@ -241,6 +242,37 @@ private:
 	void				Event_Toggle( idEntity *activator );
 };
 
+//ff1.3 start
+
+/*
+===============================================================================
+
+  Trigger which explodes when touched.
+
+===============================================================================
+*/
+
+class idTrigger_Explodable : public idTrigger {
+public:
+	CLASS_PROTOTYPE( idTrigger_Explodable );
+
+						idTrigger_Explodable( void );
+
+	void				Save( idSaveGame *savefile ) const;
+	void				Restore( idRestoreGame *savefile );
+
+	void				Spawn( void );
+
+private:
+	bool				on;
+
+	void				Explode( idEntity *activator );
+	void				Event_Explode( void );
+	void				Event_Touch( idEntity *other, trace_t *trace );
+};
+
+
+//ff1.3 end
 
 /*
 ===============================================================================
@@ -291,6 +323,7 @@ private:
 
 	void				Event_Trigger( idEntity *activator );
 };
+
 
 #ifdef CTF
 /*

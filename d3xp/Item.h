@@ -56,6 +56,7 @@ public:
 	virtual bool			Pickup( idPlayer *player );
 	virtual void			Think( void );
 	virtual void			Present();
+	virtual void			PostBind( void ); //ff1.3
 
 	enum {
 		EVENT_PICKUP = idEntity::EVENT_MAXEVENTS,
@@ -77,15 +78,27 @@ public:
 	virtual void			WriteToSnapshot( idBitMsgDelta &msg ) const;
 	virtual void			ReadFromSnapshot( const idBitMsgDelta &msg );
 
+protected:
+	bool					canPickUp;
+
+	virtual void			Hide( void ); //ff1.3
+	virtual void			Show( void ); //ff1.3
+
 private:
 	idVec3					orgOrigin;
 	bool					spin;
 	bool					pulse;
-	bool					canPickUp;
+	//bool					canPickUp;
 
 	// for item pulse effect
 	int						itemShellHandle;
 	const idMaterial *		shellMaterial;
+
+	//ff1.3 start
+#ifdef SHELLSKIN
+	const idDeclSkin *		shellSkin;
+#endif
+	//ff1.3 end
 
 	// used to update the item pulse effect
 	mutable bool			inView;
@@ -101,7 +114,22 @@ private:
 	void					Event_Trigger( idEntity *activator );
 	void					Event_Respawn( void );
 	void					Event_RespawnFx( void );
+
+	//ff1.3 start
+	void					Event_SetWorldOrigin( idVec3 const &org );
+	void					Event_SetOrigin( const idVec3 &org );
+	//ff1.3 end
 };
+
+//ff1.3 start
+class idItemSoul : public idItem {
+public:
+	CLASS_PROTOTYPE( idItemSoul );
+
+private:
+	void					Event_Touch( idEntity *other, trace_t *trace );
+};
+//ff1.3 end
 
 class idItemPowerup : public idItem {
 public:

@@ -577,5 +577,65 @@ private:
 	void				Event_RestoreVolume();
 };
 
+//ff1.3 start
+/*
+===============================================================================
+
+idTarget_Secret
+
+===============================================================================
+*/
+
+class idTarget_Secret : public idTarget {
+public:
+	CLASS_PROTOTYPE( idTarget_Secret );
+
+						idTarget_Secret( void );
+
+	void				Spawn( void );
+
+	void				Save( idSaveGame *savefile ) const;
+	void				Restore( idRestoreGame *savefile );
+
+	bool				IsFound( void ) { return found; };
+	
+private:
+	bool				found;
+	void				Event_Activate( idEntity *activator );
+};
+
+/*
+===============================================================================
+
+idTarget_Stats
+
+===============================================================================
+*/
+
+class idTarget_Stats : public idTarget {
+public:
+	CLASS_PROTOTYPE( idTarget_Stats );
+	
+private:
+	void				Event_Activate( idEntity *activator );
+};
+
+/*
+===============================================================================
+
+idTarget_Autosave
+
+===============================================================================
+*/
+
+class idTarget_Autosave : public idTarget {
+public:
+	CLASS_PROTOTYPE( idTarget_Autosave );
+	
+private:
+	void				Event_Activate( idEntity *activator );
+};
+
+//ff1.3 end
 
 #endif /* !__GAME_TARGET_H__ */

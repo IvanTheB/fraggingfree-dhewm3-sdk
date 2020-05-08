@@ -339,6 +339,17 @@ void Cmd_Give_f( const idCmdArgs &args ) {
 	}
 
 	if ( give_all || idStr::Icmp( name, "health" ) == 0 )	{
+		
+		//ff 1.3 start
+		idEntity * vehicle = player->GetCurrentVehicle();
+		idEntity * ai = player->GetCurrentRiddenAI();
+		if( vehicle ){
+			vehicle->health = vehicle->spawnArgs.GetFloat("health");
+		}else if( ai ){
+			ai->health = ai->spawnArgs.GetFloat("health");
+		}
+		//ff 1.3 end
+
 		player->health = player->inventory.maxHealth;
 		if ( !give_all ) {
 			return;
@@ -358,6 +369,12 @@ void Cmd_Give_f( const idCmdArgs &args ) {
 		for ( i = 0 ; i < AMMO_NUMTYPES; i++ ) {
 			player->inventory.ammo[ i ] = player->inventory.MaxAmmoForAmmoClass( player, idWeapon::GetAmmoNameForNum( ( ammo_t )i ) );
 		}
+		for ( i = 0 ; i < MAX_SKULL_MODES; i++ ) {
+			if( player->inventory.skullSpecialAmmo[ i ] < 1 ){
+				player->inventory.skullSpecialAmmo[ i ] = 1;
+			}
+		}
+		player->UpdateEveryAmmoOnHud(); //ff1.1
 		if ( !give_all ) {
 			return;
 		}
@@ -420,6 +437,15 @@ void Cmd_Give_f( const idCmdArgs &args ) {
 		player->GiveVideo( args.Argv(2), NULL );
 		return;
 	}
+
+	//ff1.1 start
+	if ( give_all || idStr::Icmp( name, "stamina" ) == 0 ) {
+		player->staminaHelltime = HELLTIME_STAMINA_MAX;
+		if ( !give_all ) {
+			return;
+		}
+	}
+	//ff1.1 end
 
 	if ( !give_all && !player->Give( args.Argv(1), args.Argv(2) ) ) {
 		gameLocal.Printf( "unknown item\n" );
@@ -521,13 +547,16 @@ void Cmd_Noclip_f( const idCmdArgs &args ) {
 		return;
 	}
 
-	if ( player->noclip ) {
-		msg = "noclip OFF\n";
+	if ( player->GetCurrentRiddenAI() ) {
+		msg = "cannot noclip now\n";
 	} else {
-		msg = "noclip ON\n";
+		if ( player->noclip ) {
+			msg = "noclip OFF\n";
+		} else {
+			msg = "noclip ON\n";
+		}
+		player->noclip = !player->noclip;
 	}
-	player->noclip = !player->noclip;
-
 	gameLocal.Printf( "%s", msg );
 }
 
@@ -2369,6 +2398,62 @@ void Cmd_SetActorState_f( const idCmdArgs &args ) {
 }
 #endif
 
+//ff1.3 start
+void Cmd_StartRide_f( const idCmdArgs &args ) {
+
+	idPlayer* player = gameLocal.GetLocalPlayer();
+	if ( !player || !gameLocal.CheatsOk() ) {
+		return;
+	}
+
+	if ( args.Argc() != 2 ) {
+		common->Printf( "usage: ride <entity name>\n" );
+		return;
+	}
+
+	idEntity* ent;
+	ent = gameLocal.FindEntity( args.Argv( 1 ) );
+	if ( !ent ) {
+		gameLocal.Printf( "entity not found\n" );
+		return;
+	}
+
+	if ( !ent->RespondsTo(AI_StartRiding) ) { //IsType(idAI::Type)
+		gameLocal.Printf( "entity not rideable\n" );
+		return;
+	}
+
+	ent->PostEventMS(&AI_StartRiding, 0, player, 0);
+}
+
+void Cmd_StopRide_f( const idCmdArgs &args ) {
+
+	idPlayer* player = gameLocal.GetLocalPlayer();
+	if ( !player || !gameLocal.CheatsOk() ) {
+		return;
+	}
+	idAI_Rideable* ent = player->GetCurrentRiddenAI();
+	if ( ent ) {	
+		ent->PostEventMS(&AI_StopRiding, 0);
+	}
+}
+
+void Cmd_ShowSecrets_f( const idCmdArgs &args ) {
+	idEntity		*ent;
+
+	if ( !gameLocal.CheatsOk() ) {
+		return;
+	}
+
+	for( ent = gameLocal.spawnedEntities.Next(); ent != NULL; ent = ent->spawnNode.Next() ) {
+		if ( ent->IsType( idTarget_Secret::Type ) ) {
+			gameRenderWorld->DebugBounds( static_cast<idTarget_Secret*>( ent )->IsFound() ? colorGreen : colorRed, 
+				idBounds( vec3_origin ).Expand( 40.0f ), ent->GetPhysics()->GetOrigin(), 30000 );
+		}
+	}
+}
+//ff1.3 end
+
 static void ArgCompletion_DefFile( const idCmdArgs &args, void(*callback)( const char *s ) ) {
 	cmdSystem->ArgCompletion_FolderExtension( args, callback, "def/", true, ".def", NULL );
 }
@@ -2508,6 +2593,11 @@ void idGameLocal::InitConsoleCommands( void ) {
 #ifdef _D3XP
 	cmdSystem->AddCommand( "setActorState",			Cmd_SetActorState_f,		CMD_FL_GAME|CMD_FL_CHEAT,	"Manually sets an actors script state", idGameLocal::ArgCompletion_EntityName );
 #endif
+	//ff1.3 start
+	cmdSystem->AddCommand( "ride",					Cmd_StartRide_f,			CMD_FL_GAME|CMD_FL_CHEAT,	"Start riding", idGameLocal::ArgCompletion_EntityName );
+	cmdSystem->AddCommand( "stopRide",				Cmd_StopRide_f,				CMD_FL_GAME|CMD_FL_CHEAT,	"Stop riding" );
+	cmdSystem->AddCommand( "showSecrets",			Cmd_ShowSecrets_f,			CMD_FL_GAME|CMD_FL_CHEAT,	"Show secret" );
+	//ff1.3 end
 }
 
 /*

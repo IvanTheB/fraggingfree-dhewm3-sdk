@@ -680,7 +680,7 @@ void idLight::BecomeBroken( idEntity *activator ) {
 
 	}
 
-		ActivateTargets( activator );
+	ActivateTargets( activator );
 
 	// offset the start time of the shader to sync it to the game time
 	renderEntity.shaderParms[ SHADERPARM_TIMEOFFSET ] = -MS2SEC( gameLocal.time );

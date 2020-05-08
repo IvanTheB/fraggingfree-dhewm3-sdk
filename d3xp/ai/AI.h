@@ -50,12 +50,20 @@ const float	AI_TURN_SCALE				= 60.0f;
 const float	AI_SEEK_PREDICTION			= 0.3f;
 const float	AI_FLY_DAMPENING			= 0.15f;
 const float	AI_HEARING_RANGE			= 2048.0f;
+const float	AI_SUSPICIOUS_RANGE_Z		= 320.0f; //ff1.3
 const int	DEFAULT_FLY_OFFSET			= 68;
+const int	FRIEND_FLY_OFFSET			= 48; //ff1.3
 
 #define ATTACK_IGNORE			0
 #define ATTACK_ON_DAMAGE		1
 #define ATTACK_ON_ACTIVATE		2
 #define ATTACK_ON_SIGHT			4
+
+//ff1.3 start
+#define FRIEND_FX_NAME			"friendFx"
+#define FRIEND_FX_JOINT			"origin"
+#define FRIEND_FX_MODEL			"ff_evildone.prt"
+//ff1.3 end
 
 // defined in script/ai_base.script.  please keep them up to date.
 typedef enum {
@@ -153,7 +161,7 @@ extern const idEventDef AI_AttackMissile;
 extern const idEventDef AI_FireMissileAtTarget;
 #ifdef _D3XP
 extern const idEventDef AI_LaunchProjectile;
-extern const idEventDef AI_TriggerFX;
+//extern const idEventDef AI_TriggerFX; //ff1.1 - moved to idAnimatedEntity
 extern const idEventDef AI_StartEmitter;
 extern const idEventDef AI_StopEmitter;
 #endif
@@ -166,7 +174,10 @@ extern const idEventDef AI_EnableGravity;
 extern const idEventDef AI_DisableGravity;
 extern const idEventDef AI_TriggerParticles;
 extern const idEventDef AI_RandomPath;
-
+extern const idEventDef AI_ClearEnemy; //ff1.3
+extern const idEventDef AI_StartRiding; //ff1.3
+extern const idEventDef AI_StopRiding; //ff1.3
+extern const idEventDef AI_MeleeAttackToJoint; //ff1.3
 class idPathCorner;
 
 typedef struct particleEmitter_s {
@@ -275,7 +286,7 @@ public:
 	void					TalkTo( idActor *actor );
 	talkState_t				GetTalkState( void ) const;
 
-	bool					GetAimDir( const idVec3 &firePos, idEntity *aimAtEnt, const idEntity *ignore, idVec3 &aimDir ) const;
+	bool					GetAimDir( const idVec3 &firePos, idEntity *aimAtEnt, const idEntity *ignore, idVec3 &aimDir, bool useLastVisiblePos=true ) const; //ff1.3 - useLastVisiblePos added
 
 	void					TouchedByFlashlight( idActor *flashlight_owner );
 
@@ -296,6 +307,11 @@ public:
 #ifdef _D3XP
 	virtual void			Gib( const idVec3 &dir, const char *damageDefName );
 #endif
+
+	//ff1.3 start
+	bool					CanBeRidden( void );
+	float					GetProjectileDamageScale( void ) const;
+	//ff1.3 end
 
 protected:
 	// navigation
@@ -427,6 +443,20 @@ protected:
 	idEntityPtr<idHarvestable>	harvestEnt;
 #endif
 
+	//ff1.3 start
+	bool					activateTargetsOnDeath;
+	bool					focusPosOnlyInRange; //completely ignore focus position if out of look_min/look_max range
+	bool					helltimeMode;
+	bool					helltimeAllowed;
+	bool					canTouchTriggers;
+	bool					forcedMovements;
+	float					meleeDamageScale;
+	float					projectileDamageScale;
+	const idDeclSkin *		helltimeSkin;
+	const idDeclSkin *		postHelltimeSkin;
+	const idDeclSkin *		postHelltimeHeadSkin;
+	//ff1.3 end
+
 	// script variables
 	idScriptBool			AI_TALK;
 	idScriptBool			AI_DAMAGE;
@@ -441,7 +471,7 @@ protected:
 	idScriptBool			AI_ACTIVATED;
 	idScriptBool			AI_FORWARD;
 	idScriptBool			AI_JUMP;
-	idScriptBool			AI_ENEMY_REACHABLE;
+	//idScriptBool			AI_ENEMY_REACHABLE;
 	idScriptBool			AI_BLOCKED;
 	idScriptBool			AI_OBSTACLE_IN_PATH;
 	idScriptBool			AI_DEST_UNREACHABLE;
@@ -456,7 +486,7 @@ protected:
 	virtual	void			DormantEnd( void );		// called when entity wakes from being dormant
 	void					Think( void );
 	void					Activate( idEntity *activator );
-	int						ReactionTo( const idEntity *ent );
+	int						ReactionTo( const idActor *ent );
 	bool					CheckForEnemy( void );
 	void					EnemyDead( void );
 	virtual bool			CanPlayChatterSounds( void ) const;
@@ -542,11 +572,13 @@ protected:
 	idProjectile			*LaunchProjectile( const char *jointname, idEntity *target, bool clampToAttackCone );
 	virtual void			DamageFeedback( idEntity *victim, idEntity *inflictor, int &damage );
 	void					DirectDamage( const char *meleeDefName, idEntity *ent );
+	void					DamageEffect( const char *meleeDefName, idEntity *ent, const idVec3 &start, float range ); //ff1.3
 	bool					TestMelee( void ) const;
-	bool					AttackMelee( const char *meleeDefName );
+	virtual bool			AttackMelee( const char *meleeDefName ); //ff1.3 - virtual added
 	void					BeginAttack( const char *name );
 	void					EndAttack( void );
 	void					PushWithAF( void );
+	//void					CanHitEnemyFromAnim( const char *animname, bool visibleRequired ); //ff1.3
 
 	// special effects
 	void					GetMuzzle( const char *jointname, idVec3 &muzzle, idMat3 &axis );
@@ -558,14 +590,25 @@ protected:
 	void					TriggerParticles( const char *jointName );
 
 #ifdef _D3XP
-	void					TriggerFX( const char* joint, const char* fx );
-	idEntity*				StartEmitter( const char* name, const char* joint, const char* particle );
-	idEntity*				GetEmitter( const char* name );
+	//void					TriggerFX( const char* joint, const char* fx ); // ff1.1 - moved to idAnimatedEntity
+	idFuncEmitter			*StartEmitter( const char* name, const char* joint, const char* particle, /*ff1.3*/ bool orientated );
+	idFuncEmitter			*GetEmitter( const char* name );
 	void					StopEmitter( const char* name );
+	//ff1.3 start
+	//void					SetEmitterVisible( const char* name, bool on );
+	void					ChangeTeam( int newTeam );
+	void					UpdateFriendFx( void );
+	//ff1.3 end
 #endif
 
+	//ff1.3 start
+	void					UpdateHelltimeMode( bool on );
+	virtual void			UpdateAttack( void ){};
+	void					FadeOut( void );
+	//ff1.3 end
+
 	// AI script state management
-	void					LinkScriptVariables( void );
+	virtual void			LinkScriptVariables( void ); //ff1.3 - virtual added
 	void					UpdateAIScript( void );
 
 	//
@@ -640,6 +683,7 @@ protected:
 	void					Event_PredictEnemyPos( float time );
 	void					Event_CanHitEnemy( void );
 	void					Event_CanHitEnemyFromAnim( const char *animname );
+	void					Event_CanHitNotVisibleEnemyFromAnim( const char *animname ); //ff1.3
 	void					Event_CanHitEnemyFromJoint( const char *jointname );
 	void					Event_EnemyPositionValid( void );
 	void					Event_ChargeAttack( const char *damageDef );
@@ -653,6 +697,7 @@ protected:
 	void					Event_Burn( void );
 	void					Event_PreBurn( void );
 	void					Event_ClearBurn( void );
+	void					Event_Disintegrate( void ); //ff1.3
 	void					Event_SetSmokeVisibility( int num, int on );
 	void					Event_NumSmokeEmitters( void );
 	void					Event_StopThinking( void );
@@ -705,13 +750,39 @@ protected:
 #ifdef _D3XP
 	void					Event_MoveToPositionDirect( const idVec3 &pos );
 	void					Event_AvoidObstacles( int ignore);
-	void					Event_TriggerFX( const char* joint, const char* fx );
+	//void					Event_TriggerFX( const char* joint, const char* fx ); // ff1.1 - moved to idAnimatedEntity
 
 	void					Event_StartEmitter( const char* name, const char* joint, const char* particle );
 	void					Event_GetEmitter( const char* name );
 	void					Event_StopEmitter( const char* name );
 #endif
+
+	//ff1.3 start
+	void					Event_SetSkin( const char *skinname );
+	void					Event_EnemyIsDriving( void );
+	void					Event_EnemyIsPlayer( void );
+	//void					Event_AllowSlowmoMode( int allow );
+	void					Event_SetActivateTargetsOnDeath( int activate );
+	void					Event_SetTeam( int newTeam );
+	void					Event_RestoreTeam( void );
+	//void					Event_SetTemporaryTeam( int newTeam, float timeSec );
+	//void					Event_ResetTemporaryTeam( void );
+	void					Event_EnemyInFov( void );
+	void					Event_EnemyInFovDegrees( float fov );
+	void					Event_HeardSuspiciousSound( float focusFov, float focusDistance, float fovDistance, float minDistance );
+	void					Event_EnemyInSuspiciousPosition( float focusFov, float focusDistance, float fovDistance, float minDistance );
+	void					Event_StartRiding( idEntity* driver, int checkSkippedTriggers );
+	void					Event_NoTarget( int enable );
+
+	bool					SuspiciousPosition( const idVec3 &pos, float focusFov, float maxFocusDistance, float maxFovDistance, float minDistance );
+	//ff1.3 end
 };
+
+//ff1.3 start
+ID_INLINE float idAI::GetProjectileDamageScale( void ) const {
+	return projectileDamageScale;
+}
+//ff1.3 end
 
 class idCombatNode : public idEntity {
 public:
@@ -741,5 +812,112 @@ private:
 	void				Event_Activate( idEntity *activator );
 	void				Event_MarkUsed( void );
 };
+
+
+//ff1.3 start
+#define RIDE_STATUS_NOTREADY	0
+#define RIDE_STATUS_READY		1
+#define RIDE_STATUS_STARTED		2
+#define RIDE_STATUS_STOPPED		3
+
+#define RIDE_DRIVER_OFFSET		4.0f
+
+//hud pulse flags
+const int HUD_RIDE_PULSE_WEAPON			= BIT(0);
+//const int HUD_RIDE_PULSE_EXIT_DISABLED	= BIT(1);
+//const int HUD_RIDE_PULSE_EXIT_1MORE		= BIT(2);
+
+class idAI_Rideable : public idAI {
+public:
+	CLASS_PROTOTYPE( idAI_Rideable );
+
+						idAI_Rideable();
+
+	void				Save( idSaveGame *savefile ) const;
+	void				Restore( idRestoreGame *savefile );
+
+	void				Spawn( void );
+	void				UnbindDriver( bool driverKilled );
+	void				PreStopRiding( void );
+
+	void				NextWeapon( void );
+	void				PrevWeapon( void );
+	bool				PerformImpulse( int impulse );
+	void				SelectWeapon( int num );
+
+	void				InitHudStats( idUserInterface *hud, idUserInterface *cursor );
+	void				UpdateHudStats( idUserInterface *hud );
+	
+	//bool				IsTimeMode( void ) const;
+	idPlayer *			GetDriver( void ) const;
+	void				GetCameraPos( idVec3 &origin, idMat3 &axis );
+	float				GetThirdPersonRange( void ) const;
+	float				GetThirdPersonHeight( void ) const;
+
+	virtual bool		AttackMelee( const char *meleeDefName );
+
+	virtual bool		IgnoreDamage( idEntity *inflictor, idEntity *attacker, const idDict *damageDef, float *additionalDamageScale );
+
+	virtual void		Teleport( const idVec3 &origin, const idAngles &angles, idEntity *destination );
+
+protected:
+	bool				timeMode;
+	int					rideEndTime;
+	int					rideStatus;
+	int					lastStopRequestTime;
+	idPlayer *			driver;
+	idVec3				cameraOffset;
+	idVec3				aimPos;
+	int					currentFireMode;
+	int					weaponBarSlot;
+	int					numFireModes;
+	int					hudPulseFlags;
+	float				thirdPersonRange;
+	float				thirdPersonHeight;
+	idScriptBool		AI_ATTACK;
+	idScriptBool		AI_SEC_ATTACK;
+	idScriptBool		AI_RELOAD;
+
+	void				SetDriverInValidPosition( void );
+	virtual void		Killed( idEntity *inflictor, idEntity *attacker, int damage, const idVec3 &dir, int location );
+	virtual void		Show( void );
+	void				UpdateAttack( void );
+	void				UpdateAim( void );
+	idProjectile		*LaunchProjectile( const char *jointname, bool clampToAttackCone );
+	void				TriggerSkippedTriggers( const idVec3 &startPos );
+	
+	void				LinkScriptVariables( void );
+
+	void				Event_GetDriver( void );
+	void				Event_GetFireMode( void );
+	void				Event_GetAimAngles( const idVec3 &firePos );
+	void				Event_BindDriver( idEntity* newDriver );
+	void				Event_UnbindDriver( void );
+	void				Event_FaceIdeal( void );
+	void				Event_FaceIdealOffset( float offset );
+	void				Event_GetIdealAngles( float offset );
+	void				Event_GetMove( void );
+	void				Event_AttackMissile( const char *jointname );
+	void				Event_LookAtAimPos( float duration );
+	void				Event_LookAtEnemyOrAimPos( float duration );
+	void				Event_StartRiding( idEntity* driver, int checkSkippedTriggers );
+	void				Event_StopRiding( void );
+	void				Event_EnableClip( void );
+	void				Event_Remove( void );
+	//void				Event_MeleeAttackToJoint( const char *jointname, const char *meleeDefName );
+};
+
+ID_INLINE idPlayer * idAI_Rideable::GetDriver( void ) const {
+	return driver;
+}
+
+ID_INLINE float idAI_Rideable::GetThirdPersonRange( void ) const {
+	return thirdPersonRange;
+}
+
+ID_INLINE float idAI_Rideable::GetThirdPersonHeight( void ) const {
+	return thirdPersonHeight;
+}
+//ff1.3 end
 
 #endif /* !__AI_H__ */

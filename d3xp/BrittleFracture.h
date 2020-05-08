@@ -73,10 +73,16 @@ public:
 	virtual void				Think( void );
 	virtual void				ApplyImpulse( idEntity *ent, int id, const idVec3 &point, const idVec3 &impulse );
 	virtual void				AddForce( idEntity *ent, int id, const idVec3 &point, const idVec3 &force );
-	virtual void				AddDamageEffect( const trace_t &collision, const idVec3 &velocity, const char *damageDefName );
 	virtual void				Killed( idEntity *inflictor, idEntity *attacker, int damage, const idVec3 &dir, int location );
 
+#ifdef _DENTONMOD	
+	virtual void				AddDamageEffect( const trace_t &collision, const idVec3 &velocity, const char *damageDefName, idEntity *soundEnt=NULL );
+	void						ProjectDecal( const idVec3 &point, const idVec3 &dir, const int time, const char *damageDefName, idEntity *soundEnt=NULL  );
+#else
+	virtual void				AddDamageEffect( const trace_t &collision, const idVec3 &velocity, const char *damageDefName );
 	void						ProjectDecal( const idVec3 &point, const idVec3 &dir, const int time, const char *damageDefName );
+#endif
+
 	bool						IsBroken( void ) const;
 
 	enum {

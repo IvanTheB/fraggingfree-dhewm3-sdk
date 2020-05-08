@@ -176,6 +176,11 @@ private:
 	void				BecomeBroken( idEntity *activator );
 	void				Event_BecomeBroken( idEntity *activator );
 	void				Event_RestoreDamagable( void );
+
+	//ff1.3 start
+	void				Event_AllowDamage( void );
+	void				Event_IgnoreDamage( void );
+	//ff1.3 end
 };
 
 
@@ -210,20 +215,26 @@ class idSpring : public idEntity {
 public:
 	CLASS_PROTOTYPE( idSpring );
 
-	void				Spawn( void );
+							idSpring(); //ivan
+	void					Spawn( void );
 
-	virtual void		Think( void );
+	void					Save( idSaveGame *savefile ) const; //ivan
+	void					Restore( idRestoreGame *savefile ); //ivan
+
+	virtual void			Think( void );
 
 private:
-	idEntity *			ent1;
-	idEntity *			ent2;
-	int					id1;
-	int					id2;
-	idVec3				p1;
-	idVec3				p2;
-	idForce_Spring		spring;
+	idEntityPtr<idEntity>	ent1;
+	idEntityPtr<idEntity>	ent2;
+	int						id1;
+	int						id2;
+	idVec3					p1;
+	idVec3					p2;
+	idForce_Spring			spring;
+	bool					enabled;
 
-	void				Event_LinkSpring( void );
+	void					Event_LinkSpring( void );
+	void					Event_Activate( idEntity *activator );
 };
 
 
@@ -254,6 +265,11 @@ private:
 	void				Event_Activate( idEntity *activator );
 	void				Event_Toggle( void );
 	void				Event_FindTargets( void );
+	//ff1.3 start
+	void				Event_SetMagnitudeSphere( float sphereMin, float sphereMax );
+	void				Event_FillWhitelist( void );
+	//void				Event_SetUniformForce( idVec3 &force );
+	//ff1.3 end
 };
 
 
@@ -367,6 +383,10 @@ public:
 
 	virtual void		WriteToSnapshot( idBitMsgDelta &msg ) const;
 	virtual void		ReadFromSnapshot( const idBitMsgDelta &msg );
+
+	//ff1.3 start
+	bool				IsEmitterHidden( void ) { return hidden; };
+	//ff1.3 end
 
 private:
 	bool				hidden;
@@ -809,8 +829,18 @@ private:
 	float				magnitude;
 
 	float				height;
+	//ff1.3 start
+	/*was: 
 	bool				playerDamaged;
 	float				playerDamageSize;
+	*/
+	float				waveWidth;
+	idList<int>			victims; //spawnIds of entities hit by this wave
+	idEntityPtr<idEntity>	activator;
+	//ff1.3 end
+	
+
+	
 
 };
 
@@ -896,5 +926,39 @@ public:
 };
 
 #endif /* _D3XP */
+
+//ff1.3 start
+/*
+===============================================================================
+
+idGameCover
+
+===============================================================================
+*/
+class idGameCover : public idEntity {
+public:
+	CLASS_PROTOTYPE( idGameCover );
+
+	void				Spawn( void );
+
+	void				GiveTo( idPlayer *player );
+};
+
+/*
+===============================================================================
+
+idComboEntity
+
+===============================================================================
+*/
+
+class idComboEntity : public idEntity {
+public:
+	CLASS_PROTOTYPE( idComboEntity );
+
+	void				Spawn( void );
+};
+
+//ff1.3 end
 
 #endif /* !__GAME_MISC_H__ */

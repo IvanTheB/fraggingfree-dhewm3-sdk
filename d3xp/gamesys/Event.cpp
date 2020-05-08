@@ -40,7 +40,7 @@ Event are used for scheduling tasks and for linking script commands.
 
 */
 
-#define MAX_EVENTSPERFRAME			4096
+#define MAX_EVENTSPERFRAME			8192 //ff1.3 - was 4096
 //#define CREATE_EVENT_CODE
 
 /***********************************************************************
@@ -391,12 +391,14 @@ void idEvent::Schedule( idClass *obj, const idTypeInfo *type, int time ) {
 	typeinfo = type;
 
 	// wraps after 24 days...like I care. ;)
-	this->time = gameLocal.time + time;
+	//this->time = gameLocal.time + time; //ff1.3 - moved below. Fix event on fast entities queued by slow entity
 
 	eventNode.Remove();
 
 #ifdef _D3XP
 	if ( obj->IsType( idEntity::Type ) && ( ( (idEntity*)(obj) )->timeGroup == TIME_GROUP2 ) ) {
+		this->time = gameLocal.fast.time + time; //ff1.3
+
 		event = FastEventQueue.Next();
 		while( ( event != NULL ) && ( this->time >= event->time ) ) {
 			event = event->eventNode.Next();

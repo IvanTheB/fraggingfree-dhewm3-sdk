@@ -904,7 +904,14 @@ bool FindOptimalPath( const pathNode_t *root, const obstacle_t *obstacles, int n
 	}
 
 	if ( !pathToGoalExists ) {
-		seekPos.ToVec2() = root->children[0]->pos;
+		//ff1.3 start
+		//seekPos.ToVec2() = root->children[0]->pos;  //ivan note: lostsoul here + sabaoth crashed here once
+		if ( root->children[0] ) {
+			seekPos.ToVec2() = root->children[0]->pos;
+		} else {
+			seekPos.ToVec2() = root->pos;
+		}
+		//ff1.3 end
 	} else if ( !optimizedPathCalculated ) {
 		OptimizePath( root, bestNode, obstacles, numObstacles, optimizedPath );
 		seekPos.ToVec2() = optimizedPath[1];

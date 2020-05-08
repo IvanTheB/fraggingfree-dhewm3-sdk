@@ -72,6 +72,53 @@ const int HEALTHPULSE_TIME = 333;
 // minimum speed to bob and play run/walk animations at
 const float MIN_BOB_SPEED = 5.0f;
 
+//ff start
+
+//cursor states
+const int CURSTOR_STATE_HIDDEN		= 0;
+const int CURSTOR_STATE_TALK		= 1;
+
+//stamina given by medals
+const int MASSACRE_STAMINA		= 10;
+const int MULTIKILL_STAMINA		= 7;
+const int DOUBLE_STAMINA		= 5;
+const int SKILLSHOT_STAMINA		= 5;
+const int CHAINSAW_STAMINA		= 3;
+
+//health
+const int HP_EXTRA				= 1;
+
+//helltime
+const float HELLTIME_SPEED_MULT = 1.2f;
+const float HELLTIME_GRAVITY_MULT = 0.5f;
+
+//vehicle
+const int VEHICLE_ENTER_DELAY = 1700; //ms
+
+//skip cin
+const int SKIP_CIN_TIP_TIME = 2000; //must match gui time
+const int SKIP_CIN_MIN_WAIT_TIME = 700; //don't lower this value. The game may not call HandleEsc for a while.
+const int ESC_PRESSED_TIMEOUT = 100;
+
+//ff1.3 - hud events names similar to gui ones, with extra parameter: 0 = cursor, 1 = hud, 2 = info
+const idEventDef EV_Player_HudEvent( "hudNamedEvent", "ds" );
+const idEventDef EV_Player_SetHudParm( "setHudParm", "dss" );
+const idEventDef EV_Player_SetHudFloat( "setHudFloat", "dsf" );
+const idEventDef EV_Player_GetHudParm( "getHudParm", "ds", 's');
+const idEventDef EV_Player_GetHudFloat( "getHudFloat", "ds", 'f');
+const idEventDef EV_Player_ForceUpdateNpcStatus( "forceUpdateNpcStatus" ); //ff1.1
+const idEventDef EV_Player_SetStamina( "setStamina", "d" );
+const idEventDef EV_Player_GetStamina( "getStamina", NULL, 'd' );
+const idEventDef EV_Player_EnableStamina( "enableStamina", "d" );
+const idEventDef EV_Player_EnableMedals( "enableMedals", "d" );
+const idEventDef EV_Player_IsOnVehicle( "isOnVehicle", NULL, 'd' );
+const idEventDef EV_Player_IsOnPossession( "isOnPossession", NULL, 'd' );
+const idEventDef EV_Player_GetAlliesDistanceOffset( "getAlliesDistanceOffset", NULL, 'f' );
+const idEventDef EV_Player_ShowStats( "showStats", "sd", 'd' );
+const idEventDef EV_Player_HideStats( "hideStats" );
+const idEventDef EV_Player_GetAmmoForWeapon( "getAmmoForWeapon", "s", 'd' );
+//ff end
+
 const idEventDef EV_Player_GetButtons( "getButtons", NULL, 'd' );
 const idEventDef EV_Player_GetMove( "getMove", NULL, 'v' );
 const idEventDef EV_Player_GetViewAngles( "getViewAngles", NULL, 'v' );
@@ -103,6 +150,25 @@ const idEventDef EV_Player_SetBloomParms( "setBloomParms", "ff" );
 #endif
 
 CLASS_DECLARATION( idActor, idPlayer )
+	//ff start
+	EVENT( EV_Player_HudEvent,				idPlayer::Event_HudEvent )
+	EVENT( EV_Player_SetHudParm,			idPlayer::Event_SetHudParm )
+	EVENT( EV_Player_SetHudFloat,			idPlayer::Event_SetHudFloat )
+	EVENT( EV_Player_GetHudParm,			idPlayer::Event_GetHudParm )
+	EVENT( EV_Player_GetHudFloat,			idPlayer::Event_GetHudFloat )
+	EVENT( EV_Player_ForceUpdateNpcStatus,	idPlayer::Event_ForceUpdateNpcStatus ) //ff1.1
+	EVENT( EV_Player_SetStamina,			idPlayer::Event_SetStamina )
+	EVENT( EV_Player_GetStamina,			idPlayer::Event_GetStamina )
+	EVENT( EV_Player_EnableStamina,			idPlayer::Event_EnableStamina )
+	EVENT( EV_Player_EnableMedals,			idPlayer::Event_EnableMedals )
+	EVENT( EV_Player_IsOnVehicle,			idPlayer::Event_IsOnVehicle )
+	EVENT( EV_Player_IsOnPossession,		idPlayer::Event_IsOnPossession )
+	EVENT( EV_Player_GetAlliesDistanceOffset,	idPlayer::Event_GetAlliesDistanceOffset )
+	EVENT( EV_Player_ShowStats,				idPlayer::Event_ShowStats )
+	EVENT( EV_Player_HideStats,				idPlayer::Event_HideStats )
+	EVENT( EV_Player_GetAmmoForWeapon,		idPlayer::Event_GetAmmoForWeapon )
+	//ff end
+
 	EVENT( EV_Player_GetButtons,			idPlayer::Event_GetButtons )
 	EVENT( EV_Player_GetMove,				idPlayer::Event_GetMove )
 	EVENT( EV_Player_GetViewAngles,			idPlayer::Event_GetViewAngles )
@@ -159,6 +225,7 @@ idVec3 idPlayer::colorBarTable[ 5 ] = {
 #endif
 };
 
+
 /*
 ==============
 idInventory::Clear
@@ -182,6 +249,10 @@ void idInventory::Clear( void ) {
 	// set to -1 so that the gun knows to have a full clip the first time we get it and at the start of the level
 	memset( clip, -1, sizeof( clip ) );
 
+	memset( pw_ammo, 0, sizeof( pw_ammo ) ); //ff1.1
+	memset( skullSpecialAmmo, 0, sizeof( skullSpecialAmmo ) ); //ff1.3
+	skullMode = SKULL_MODE_NORMAL; //ff1.3
+
 	items.DeleteContents( true );
 	memset(pdasViewed, 0, 4 * sizeof( pdasViewed[0] ) );
 	pdas.Clear();
@@ -201,6 +272,16 @@ void idInventory::Clear( void ) {
 	onePickupTime = 0;
 	pickupItemNames.Clear();
 	objectiveNames.Clear();
+
+	//ff1.3 start
+	//lastItemNum				= 0;
+	lastShownItem.name		= "";
+	lastShownItem.icon		= "";
+	lastShownItem.amount	= 0;
+	lastShownItemTime		= 0;
+	lastFullItemName.Empty();
+	gameCovers.Clear();
+	//ff1.3 end
 
 	ammoPredictTime = 0;
 
@@ -246,7 +327,15 @@ void idInventory::GivePowerUp( idPlayer *player, int powerup, int msec ) {
 		msec = def->dict.GetInt( "time" ) * 1000;
 	}
 	powerups |= 1 << powerup;
-	powerupEndTime[ powerup ] = gameLocal.time + msec;
+
+	//ff1.3 start
+	//was: powerupEndTime[ powerup ] = gameLocal.time + msec;
+	if ( powerupEndTime[ powerup ] > gameLocal.slow.time ) {
+		powerupEndTime[ powerup ] += msec;
+	} else {
+		powerupEndTime[ powerup ] = gameLocal.slow.time + msec;
+	}
+	//ff1.3 end
 }
 
 /*
@@ -280,6 +369,10 @@ void idInventory::GetPersistantData( idDict &dict ) {
 
 	// don't bother with powerups, maxhealth, maxarmor, or the clip
 
+	//ff1.3 start - we do bother with maxhealth :)
+	dict.SetInt( "maxhealth", maxHealth );
+	//ff1.3 end
+
 	// ammo
 	for( i = 0; i < AMMO_NUMTYPES; i++ ) {
 		name = idWeapon::GetAmmoNameForNum( ( ammo_t )i );
@@ -292,8 +385,15 @@ void idInventory::GetPersistantData( idDict &dict ) {
 	//Save the clip data
 	for( i = 0; i < MAX_WEAPONS; i++ ) {
 		dict.SetInt( va("clip%i", i), clip[ i ] );
+		dict.SetInt( va("pw_ammo%i", i), pw_ammo[ i ] ); //ff1.1
 	}
 #endif
+
+	//Save the skull ammo data //ff1.3
+	dict.SetInt( "skullMode", skullMode );
+	for( i = 0; i < MAX_SKULL_MODES; i++ ) {
+		dict.SetInt( va("skullSpecialAmmo%i", i), skullSpecialAmmo[ i ] );
+	}
 
 	// items
 	num = 0;
@@ -349,12 +449,22 @@ void idInventory::GetPersistantData( idDict &dict ) {
 	// weapons
 	dict.SetInt( "weapon_bits", weapons );
 
+	// levelTriggers
 	dict.SetInt( "levelTriggers", levelTriggers.Num() );
 	for ( i = 0; i < levelTriggers.Num(); i++ ) {
 		sprintf( key, "levelTrigger_Level_%i", i );
 		dict.Set( key, levelTriggers[i].levelName );
 		sprintf( key, "levelTrigger_Trigger_%i", i );
 		dict.Set( key, levelTriggers[i].triggerName );
+	}
+
+	//gameCovers
+	dict.SetInt( "gameCovers", gameCovers.Num() );
+	for( i = 0; i < gameCovers.Num(); i++ ) {
+		sprintf( key, "gameCovers_DefName_%i", i );
+		dict.Set( key, gameCovers[i].defName );
+		//sprintf( key, "gameCovers_Amount_%i", i );
+		//dict.SetInt( key, gameCovers[i].amount );
 	}
 }
 
@@ -396,8 +506,15 @@ void idInventory::RestoreInventory( idPlayer *owner, const idDict &dict ) {
 	//Restore the clip data
 	for( i = 0; i < MAX_WEAPONS; i++ ) {
 		clip[i] = dict.GetInt(va("clip%i", i), "-1");
+		pw_ammo[i] = dict.GetInt(va("pw_ammo%i", i), "0"); //ff1.1
 	}
 #endif
+
+	//Restore the skull ammo data //ff1.3
+	skullMode = dict.GetInt( "skullMode", "-1" );
+	for( i = 0; i < MAX_SKULL_MODES; i++ ) {
+		skullSpecialAmmo[i] = dict.GetInt(va("skullSpecialAmmo%i", i), "0");
+	}
 
 	// items
 	num = dict.GetInt( "items" );
@@ -460,6 +577,7 @@ void idInventory::RestoreInventory( idPlayer *owner, const idDict &dict ) {
 		Give( owner, dict, "weapon", dict.GetString( "weapon" ), NULL, false );
 	}
 
+	// levelTriggers
 	num = dict.GetInt( "levelTriggers" );
 	for ( i = 0; i < num; i++ ) {
 		sprintf( itemname, "levelTrigger_Level_%i", i );
@@ -470,6 +588,16 @@ void idInventory::RestoreInventory( idPlayer *owner, const idDict &dict ) {
 		levelTriggers.Append( lti );
 	}
 
+	// gameCovers
+	num = dict.GetInt( "gameCovers" );
+	for ( i = 0; i < num; i++ ) {
+		sprintf( itemname, "gameCovers_DefName_%i", i );
+		idGameCoverInfo gameCover;
+		gameCover.defName = dict.GetString( itemname );
+		//sprintf( itemname, "gameCovers_Amount_%i", i );
+		//gameCover.amount = dict.GetInt( itemname );
+		gameCovers.Append( gameCover );
+	}
 }
 
 /*
@@ -496,6 +624,12 @@ void idInventory::Save( idSaveGame *savefile ) const {
 	}
 	for( i = 0; i < MAX_WEAPONS; i++ ) {
 		savefile->WriteInt( clip[ i ] );
+		savefile->WriteInt( pw_ammo[ i ] ); //ff1.1
+	}
+	//ff1.3
+	savefile->WriteInt( skullMode );
+	for( i = 0; i < MAX_SKULL_MODES; i++ ) {
+		savefile->WriteInt( skullSpecialAmmo[ i ] );
 	}
 	for( i = 0; i < MAX_POWERUPS; i++ ) {
 		savefile->WriteInt( powerupEndTime[ i ] );
@@ -546,7 +680,22 @@ void idInventory::Save( idSaveGame *savefile ) const {
 	for( i = 0; i < pickupItemNames.Num(); i++ ) {
 		savefile->WriteString( pickupItemNames[i].icon );
 		savefile->WriteString( pickupItemNames[i].name );
+		savefile->WriteInt( pickupItemNames[i].amount ); //ff1.3
 	}
+
+	//ff1.3 start
+	savefile->WriteString( lastShownItem.icon );
+	savefile->WriteString( lastShownItem.name );
+	savefile->WriteInt( lastShownItem.amount );
+	savefile->WriteInt( lastShownItemTime );
+	//lastFullItemName not saved
+
+	savefile->WriteInt( gameCovers.Num() );
+	for ( i = 0; i < gameCovers.Num(); i++ ) {
+		savefile->WriteString( gameCovers[i].defName );
+		//savefile->WriteInt( gameCovers[i].amount );
+	}
+	//ff1.3 end
 
 	savefile->WriteInt( objectiveNames.Num() );
 	for( i = 0; i < objectiveNames.Num(); i++ ) {
@@ -567,6 +716,8 @@ void idInventory::Save( idSaveGame *savefile ) const {
 
 	savefile->WriteInt( lastGiveTime );
 
+	//ff1.3 start
+	/* was:
 #ifdef _D3XP
 	for(i = 0; i < AMMO_NUMTYPES; i++) {
 		savefile->WriteInt(rechargeAmmo[i].ammo);
@@ -574,6 +725,10 @@ void idInventory::Save( idSaveGame *savefile ) const {
 		savefile->WriteString(rechargeAmmo[i].ammoName);
 	}
 #endif
+	*/
+
+	savefile->WriteInt( skullAmmoType );
+	//ff1.3 end
 }
 
 /*
@@ -600,6 +755,12 @@ void idInventory::Restore( idRestoreGame *savefile ) {
 	}
 	for( i = 0; i < MAX_WEAPONS; i++ ) {
 		savefile->ReadInt( clip[ i ] );
+		savefile->ReadInt( pw_ammo[ i ] ); //ff1.1
+	}
+	//ff1.3
+	savefile->ReadInt( skullMode );
+	for( i = 0; i < MAX_SKULL_MODES; i++ ) {
+		savefile->ReadInt( skullSpecialAmmo[ i ] );
 	}
 	for( i = 0; i < MAX_POWERUPS; i++ ) {
 		savefile->ReadInt( powerupEndTime[ i ] );
@@ -666,9 +827,26 @@ void idInventory::Restore( idRestoreGame *savefile ) {
 
 		savefile->ReadString( info.icon );
 		savefile->ReadString( info.name );
+		savefile->ReadInt( info.amount ); //ff1.3
 
 		pickupItemNames.Append( info );
 	}
+
+	//ff1.3 start
+	savefile->ReadString( lastShownItem.icon );
+	savefile->ReadString( lastShownItem.name );
+	savefile->ReadInt( lastShownItem.amount );
+	savefile->ReadInt( lastShownItemTime );
+	lastFullItemName.Empty(); //not saved
+
+	savefile->ReadInt( num );
+	for ( i = 0; i < num; i++ ) {
+		idGameCoverInfo gameCover;
+		savefile->ReadString( gameCover.defName );
+		//savefile->ReadInt( gameCover.amount );
+		gameCovers.Append( gameCover );
+	}
+	//ff1.3 end
 
 	savefile->ReadInt( num );
 	for( i = 0; i < num; i++ ) {
@@ -695,6 +873,8 @@ void idInventory::Restore( idRestoreGame *savefile ) {
 
 	savefile->ReadInt( lastGiveTime );
 
+	//ff1.3 start
+	/* was:
 #ifdef _D3XP
 	for(i = 0; i < AMMO_NUMTYPES; i++) {
 		savefile->ReadInt(rechargeAmmo[i].ammo);
@@ -705,6 +885,10 @@ void idInventory::Restore( idRestoreGame *savefile ) {
 		strcpy(rechargeAmmo[i].ammoName, name);
 	}
 #endif
+	*/
+
+	savefile->ReadInt( (int &) skullAmmoType );
+	//ff1.3 end
 }
 
 /*
@@ -718,12 +902,38 @@ ammo_t idInventory::AmmoIndexForAmmoClass( const char *ammo_classname ) const {
 
 /*
 ==============
-idInventory::AmmoIndexForAmmoClass
+idInventory::MaxAmmoForAmmoClass
 ==============
 */
 int idInventory::MaxAmmoForAmmoClass( idPlayer *owner, const char *ammo_classname ) const {
 	return owner->spawnArgs.GetInt( va( "max_%s", ammo_classname ), "0" );
 }
+
+//ff1.3 start
+/*
+==============
+idInventory::MaxPwAmmoForWeaponName
+==============
+*/
+int idInventory::MaxPwAmmoForWeaponName( idPlayer *owner, const char *weapon_name ) const {
+	return owner->spawnArgs.GetInt( va( "max_pw_%s", weapon_name ), "0" );
+}
+
+/*
+==============
+idInventory::PwPickupNameForWeaponName
+==============
+*/
+const char *idInventory::PwPickupNameForWeaponName( const char *weapon_name ) const {
+	const idDict *weaponDict = gameLocal.FindEntityDefDict( weapon_name, false );
+	if ( weaponDict ) {
+		return va( "%s Powerup", common->GetLanguageDict()->GetString( weaponDict->GetString( "inv_name" ) ) );
+	} else {
+		gameLocal.Warning("Invalid weapon name '%d'", weapon_name );
+		return "";
+	}
+}
+//ff1.3 end
 
 /*
 ==============
@@ -781,11 +991,17 @@ ammo_t idInventory::AmmoIndexForWeaponClass( const char *weapon_classname, int *
 idInventory::AddPickupName
 ==============
 */
-void idInventory::AddPickupName( const char *name, const char *icon, idPlayer* owner ) { //_D3XP
+void idInventory::AddPickupName( const char *name, const char *icon, int amount, idPlayer* owner ) { //_D3XP
 	int num;
 
 	num = pickupItemNames.Num();
-	if ( ( num == 0 ) || ( pickupItemNames[ num - 1 ].name.Icmp( name ) != 0 ) ) {
+
+	//ff1.3 start
+	if ( ( num > 0 ) && ( pickupItemNames[ num - 1 ].name.Icmp( name ) == 0 ) ) {
+		pickupItemNames[ num - 1 ].amount += amount;
+	} else {
+	//if ( ( num == 0 ) || ( pickupItemNames[ num - 1 ].name.Icmp( name ) != 0 ) ) {
+	//ff1.3 end
 		idItemInfo &info = pickupItemNames.Alloc();
 
 		if ( idStr::Cmpn( name, STRTABLE_ID, STRTABLE_ID_LENGTH ) == 0 ) {
@@ -794,6 +1010,7 @@ void idInventory::AddPickupName( const char *name, const char *icon, idPlayer* o
 			info.name = name;
 		}
 		info.icon = icon;
+		info.amount = amount; //ff1.3
 
 #ifdef _D3XP
 		if ( gameLocal.isServer ) {
@@ -818,7 +1035,6 @@ bool idInventory::Give( idPlayer *owner, const idDict &spawnArgs, const char *st
 	const char				*pos;
 	const char				*end;
 	int						len;
-	idStr					weaponString;
 	int						max;
 	const idDeclEntityDef	*weaponDecl;
 	bool					tookWeapon;
@@ -826,6 +1042,108 @@ bool idInventory::Give( idPlayer *owner, const idDict &spawnArgs, const char *st
 	idItemInfo				info;
 	const char				*name;
 
+
+	//ff start
+	if ( !idStr::Icmpn( statname, "pw_", 3 ) ) {
+		amount = atoi( value );
+		if ( !amount ) {
+			return false;
+		}
+
+		if ( !idStr::Icmp( statname, "pw_remote_grenade" ) ) {
+			end = "weapon_handgrenade";
+			i = owner->SlotForWeapon( end );
+			if ( i < 0 ) {
+				gameLocal.Warning( "Invalid weapon name 'weapon_handgrenade'" );
+				return false;
+			}
+		} else {
+
+			end = idStr( statname ).Right( idStr::Length(statname) - 3 ).c_str(); //weapon name
+			i = owner->SlotForWeapon( end );
+			if ( i < 0 ) {
+				gameLocal.Warning( "Invalid weapon name for '%s'", statname );
+				return false;
+			}
+
+			max = MaxPwAmmoForWeaponName( owner, end );
+			if ( pw_ammo[ i ] >= max ) {
+				if ( lastFullItemName.IsEmpty() ){
+					lastFullItemName = PwPickupNameForWeaponName( end );
+				}
+				return false;
+			}
+
+			pw_ammo[ i ] += amount;
+			if ( pw_ammo[ i ] > max ) {
+				pw_ammo[ i ] = max;
+			}
+			ammoPulse = true; //upd ammo count
+		}
+
+		//select weapon if we already have it
+		if ( (weapons & ( 1 << i )) && idealWeapon ) {
+			*idealWeapon = i;
+			weaponPulse = true; //upd weapon selection
+		}
+
+		name = PwPickupNameForWeaponName( end );
+		if ( idStr::Length( name ) ) {
+			AddPickupName( name, "", amount, owner ); //_D3XP
+		}
+	} else if ( !idStr::Icmpn( statname, "ammo_skulls", 11 ) ) { //fix for skulls
+		if ( !idStr::Icmp( statname, "ammo_skulls" ) ) {
+			len = SKULL_MODE_NORMAL;
+		} else if ( !idStr::Icmp( statname, "ammo_skulls_berserk" ) ) {
+			len = SKULL_MODE_BERSERK;
+		} else if ( !idStr::Icmp( statname, "ammo_skulls_invuln" ) ) {
+			len = SKULL_MODE_INVULN;
+		} else {
+			gameLocal.Warning( "Unknown special ammo skulls type '%s'", statname );
+			return false;
+		}
+
+		amount = atoi( value );
+		if ( !amount ) {
+			return false;
+		}
+		i = skullAmmoType;
+		max = MaxAmmoForAmmoClass( owner, "ammo_skulls" );
+
+		if ( ammo[ i ] >= max ) {
+			if ( lastFullItemName.IsEmpty() && amount > 0 ){
+				lastFullItemName = AmmoPickupNameForIndex( i );
+			}
+			return false;
+		}
+
+		//hud feedback
+		name = AmmoPickupNameForIndex( i );
+		if ( idStr::Length( name ) ) {
+			AddPickupName( name, "", amount, owner ); //_D3XP
+		}
+
+		if ( ammo[ i ] + amount > max ) {
+			amount = max - ammo[ i ];
+		}
+		ammo[ i ] += amount; //upd standard ammo count
+		if ( len != SKULL_MODE_NORMAL ) {
+			skullSpecialAmmo[len] += amount; //upd special ammo count
+			//gameLocal.Printf( "adding %d skull ammo -> ammo[ %d ] = %d, skullSpecialAmmo[ %d ] = %d\n", amount, i, ammo[ i ], len, skullSpecialAmmo[len] );
+		}
+		ammoPulse = true;
+
+		//change mode
+		skullMode = len;
+
+		//select skull weapon
+		if ( (weapons & ( 1 << owner->weapon_skull )) && idealWeapon ) {
+			*idealWeapon = owner->weapon_skull;
+			weaponPulse = true; //upd weapon selection
+		}
+	} else
+	//ff end
+/*
 #ifdef _D3XP
 	if ( !idStr::Icmp( statname, "ammo_bloodstone" ) ) {
 		i = AmmoIndexForAmmoClass( statname );
@@ -848,28 +1166,99 @@ bool idInventory::Give( idPlayer *owner, const idDict &spawnArgs, const char *st
 		}
 	} else
 #endif
-
+*/
 	if ( !idStr::Icmpn( statname, "ammo_", 5 ) ) {
+		amount = atoi( value );
+		if( !amount ) {
+			return false; //ff1.3 - powerups have 0 ammo
+		}
 		i = AmmoIndexForAmmoClass( statname );
 		max = MaxAmmoForAmmoClass( owner, statname );
+
 		if ( ammo[ i ] >= max ) {
+			//ff1.3 start
+			if ( lastFullItemName.IsEmpty() ){
+				lastFullItemName = AmmoPickupNameForIndex( i );
+			}
+			//ff1.3 end
 			return false;
 		}
-		amount = atoi( value );
-		if ( amount ) {
-			ammo[ i ] += amount;
-			if ( ( max > 0 ) && ( ammo[ i ] > max ) ) {
-				ammo[ i ] = max;
-			}
-			ammoPulse = true;
 
-			name = AmmoPickupNameForIndex( i );
-			if ( idStr::Length( name ) ) {
-				AddPickupName( name, "", owner ); //_D3XP
+		//ff1.3 start - same logic but calc
+		/*
+		if ( ( max > 0 ) && ( ammo[ i ] + amount > max ) ) {
+			amount = max - ammo[ i ];
+			ammo[ i ] = max;
+		} else {
+			ammo[ i ] += amount;
+		}
+		*/
+		ammo[ i ] += amount;
+		if ( ( max > 0 ) && ( ammo[ i ] > max ) ) {
+			ammo[ i ] = max;
+		}
+		//ff1.3 end
+		ammoPulse = true;
+
+		name = AmmoPickupNameForIndex( i );
+		if ( idStr::Length( name ) ) {
+			AddPickupName( name, "", amount, owner ); //_D3XP
+		}
+
+		//ff1.3 start
+		if ( !idStr::Icmp( statname, "ammo_souls" ) ) {
+			//select soul2cube weapon
+			if ( (weapons & ( 1 << owner->weapon_soul2cube )) && idealWeapon ) {
+				*idealWeapon = owner->weapon_soul2cube;
+				weaponPulse = true; //upd weapon selection
+			}
+		} else if ( !idStr::Icmp( statname, "ammo_possession" ) ) {
+			//select soul2cube weapon
+			if ( (weapons & ( 1 << owner->weapon_possession )) && idealWeapon ) {
+				*idealWeapon = owner->weapon_possession;
+				weaponPulse = true; //upd weapon selection
 			}
 		}
-	} else if ( !idStr::Icmp( statname, "armor" ) ) {
+		//ff1.3 end
+	} else if ( !idStr::Icmpn( statname, "armor", 5 ) ) { //was: !idStr::Icmp( statname, "armor" )
+		if ( idStr::Icmp( statname, "armor" ) ) {
+			switch( g_skill.GetInteger() ) {
+				case 0: {
+					if( idStr::Icmp( statname, "armor_easy" ) ){
+						return false;
+					}
+					break;
+				}
+				case 1: {
+					if( idStr::Icmp( statname, "armor_medium" ) ){
+						return false;
+					}
+					break;
+				}
+				case 2: {
+					if( idStr::Icmp( statname, "armor_hard" ) ){
+						return false;
+					}
+					break;
+				}
+				case 3: {
+					if( idStr::Icmp( statname, "armor_nightmare" ) ){
+						return false;
+					}
+					break;
+				}
+				default: {
+					return false;
+				}
+			}
+		}
+
 		if ( armor >= maxarmor ) {
+			//ff1.3 start
+			if ( lastFullItemName.IsEmpty() && atoi( value ) > 0 ){
+				lastFullItemName = "Armor";
+			}
+			//ff1.3 end
 			return false;	// can't hold any more, so leave the item
 		}
 		amount = atoi( value );
@@ -880,6 +1269,7 @@ bool idInventory::Give( idPlayer *owner, const idDict &spawnArgs, const char *st
 			}
 			nextArmorDepleteTime = 0;
 			armorPulse = true;
+			AddPickupName( "Armor", "", amount, owner ); //ff1.3 - TODO get name from a def?
 		}
 	} else if ( idStr::FindText( statname, "inclip_" ) == 0 ) {
 #ifdef _D3XP
@@ -951,9 +1341,9 @@ bool idInventory::Give( idPlayer *owner, const idDict &spawnArgs, const char *st
 				continue;
 			}
 
-			if ( !gameLocal.world->spawnArgs.GetBool( "no_Weapons" ) || ( weaponName == "weapon_fists" ) || ( weaponName == "weapon_soulcube" ) ) {
+			if ( !gameLocal.world->spawnArgs.GetBool( "no_Weapons" ) || ( weaponName == "weapon_fists" ) /*|| ( weaponName == "weapon_linker" )*/ /*|| ( weaponName == "weapon_soulcube" ) */ ) {
 				if ( ( weapons & ( 1 << i ) ) == 0 || gameLocal.isMultiplayer ) {
-					if ( owner->GetUserInfo()->GetBool( "ui_autoSwitch" ) && idealWeapon && i != owner->weapon_bloodstone_active1 && i != owner->weapon_bloodstone_active2 && i != owner->weapon_bloodstone_active3) {
+					if ( owner->GetUserInfo()->GetBool( "ui_autoSwitch" ) && idealWeapon ) { //&& i != owner->weapon_bloodstone_active1 && i != owner->weapon_bloodstone_active2 && i != owner->weapon_bloodstone_active3
 						assert( !gameLocal.isClient );
 						*idealWeapon = i;
 					}
@@ -986,7 +1376,7 @@ bool idInventory::Give( idPlayer *owner, const idDict &spawnArgs, const char *st
 idInventoy::Drop
 ===============
 */
-void idInventory::Drop( const idDict &spawnArgs, const char *weapon_classname, int weapon_index ) {
+int idInventory::Drop( const idDict &spawnArgs, const char *weapon_classname, int weapon_index ) {
 	// remove the weapon bit
 	// also remove the ammo associated with the weapon as we pushed it in the item
 	assert( weapon_index != -1 || weapon_classname );
@@ -1005,9 +1395,19 @@ void idInventory::Drop( const idDict &spawnArgs, const char *weapon_classname, i
 	weapons &= ( 0xffffffff ^ ( 1 << weapon_index ) );
 	ammo_t ammo_i = AmmoIndexForWeaponClass( weapon_classname, NULL );
 	if ( ammo_i ) {
+		//gameLocal.Printf( "clip[ %d ] = -1\n", weapon_index ); //temp
 		clip[ weapon_index ] = -1;
 		ammo[ ammo_i ] = 0;
+
+		//ff1.3 - weapon_skull fix
+		if( ammo_i == skullAmmoType ){
+			for( int i = 0; i < MAX_SKULL_MODES; i++ ) {
+				skullSpecialAmmo[i] = 0;
+			}
+		}
 	}
+	pw_ammo[ weapon_index ] = 0; //ff1.1
+	return weapon_index; //ff1.3
 }
 
 /*
@@ -1043,7 +1443,13 @@ int idInventory::HasAmmo( const char *weapon_classname, bool includeClip, idPlay
 #ifdef _D3XP
 	int ammoCount = HasAmmo( ammo_i, ammoRequired );
 	if(includeClip && owner) {
-		ammoCount += clip[owner->SlotForWeapon(weapon_classname)];
+		//ff1.3 start - fix for new weapons having clip -1
+		//was: ammoCount += clip[owner->SlotForWeapon(weapon_classname)];
+		ammoRequired = clip[owner->SlotForWeapon(weapon_classname)];
+		if ( ammoRequired > 0 ) {
+			ammoCount += ammoRequired;
+		}
+		//ff1.3 end
 	}
 	return ammoCount;
 #else
@@ -1123,18 +1529,21 @@ void idInventory::UpdateArmor( void ) {
 }
 
 #ifdef _D3XP
+
+//ff1.3 start - RechargeAmmo removed
+
 /*
 ===============
 idInventory::InitRechargeAmmo
 ===============
 * Loads any recharge ammo definitions from the ammo_types entity definitions.
-*/
+
 void idInventory::InitRechargeAmmo(idPlayer *owner) {
 
 	memset (rechargeAmmo, 0, sizeof(rechargeAmmo));
 
 	const idKeyValue *kv = owner->spawnArgs.MatchPrefix( "ammorecharge_" );
-	while( kv ) {
+	while ( kv ) {
 		idStr key = kv->GetKey();
 		idStr ammoname = key.Right(key.Length()- strlen("ammorecharge_"));
 		int ammoType = AmmoIndexForAmmoClass(ammoname);
@@ -1143,29 +1552,30 @@ void idInventory::InitRechargeAmmo(idPlayer *owner) {
 		kv = owner->spawnArgs.MatchPrefix( "ammorecharge_", kv );
 	}
 }
+*/
 
 /*
 ===============
 idInventory::RechargeAmmo
 ===============
 * Called once per frame to update any ammo amount for ammo types that recharge.
-*/
+
 void idInventory::RechargeAmmo(idPlayer *owner) {
 
 	for(int i = 0; i < AMMO_NUMTYPES; i++) {
-		if(rechargeAmmo[i].ammo > 0) {
-			if(!rechargeAmmo[i].rechargeTime)  {
+		if (rechargeAmmo[i].ammo > 0) {
+			if (!rechargeAmmo[i].rechargeTime)  {
 				//Initialize the recharge timer.
 				rechargeAmmo[i].rechargeTime = gameLocal.time;
 			}
 			int elapsed = gameLocal.time - rechargeAmmo[i].rechargeTime;
-			if(elapsed >= rechargeAmmo[i].ammo) {
+			if (elapsed >= rechargeAmmo[i].ammo) {
 				int intervals = (gameLocal.time - rechargeAmmo[i].rechargeTime)/rechargeAmmo[i].ammo;
 				ammo[i] += intervals;
 
 				int max = MaxAmmoForAmmoClass(owner, rechargeAmmo[i].ammoName);
-				if(max > 0) {
-					if(ammo[i] > max) {
+				if (max > 0) {
+					if (ammo[i] > max) {
 						ammo[i] = max;
 					}
 				}
@@ -1174,6 +1584,8 @@ void idInventory::RechargeAmmo(idPlayer *owner) {
 		}
 	}
 }
+*/
+//ff1.3 end
 
 /*
 ===============
@@ -1181,7 +1593,7 @@ idInventory::CanGive
 ===============
 */
 bool idInventory::CanGive( idPlayer *owner, const idDict &spawnArgs, const char *statname, const char *value, int *idealWeapon ) {
-
+	/* ff1-3 - removed
 	if ( !idStr::Icmp( statname, "ammo_bloodstone" ) ) {
 		int max = MaxAmmoForAmmoClass(owner, statname);
 		int i = AmmoIndexForAmmoClass(statname);
@@ -1197,7 +1609,9 @@ bool idInventory::CanGive( idPlayer *owner, const idDict &spawnArgs, const char 
 			}
 			return true;
 		}
-	} else if ( !idStr::Icmp( statname, "item" ) || !idStr::Icmp( statname, "icon" ) || !idStr::Icmp( statname, "name" ) ) {
+	} else
+	*/
+	if ( !idStr::Icmp( statname, "item" ) || !idStr::Icmp( statname, "icon" ) || !idStr::Icmp( statname, "name" ) ) {
 		// ignore these as they're handled elsewhere
 		//These items should not be considered as succesful gives because it messes up the max ammo items
 		return false;
@@ -1205,6 +1619,137 @@ bool idInventory::CanGive( idPlayer *owner, const idDict &spawnArgs, const char 
 	return true;
 }
 #endif
+
+//ff1.1 start
+
+/*
+===============
+idInventory::UseAvailAmmo
+===============
+*/
+bool idInventory::UseAvailAmmo( ammo_t type, int amount ) {
+	if ( ( type == 0 ) || !amount ) {
+		return false;
+	}
+
+	// check if we have infinite ammo
+	if ( ammo[ type ] < 0 ) {
+		return false;
+	}
+
+	// take an ammo away if not infinite
+	if ( ammo[ type ] >= 0 ) {
+		ammo[ type ] -= amount;
+		if ( ammo[ type ] < 0 ) {
+			ammo[ type ] = 0;
+		}
+		ammoPredictTime = gameLocal.time; // mp client: we predict this. mark time so we're not confused by snapshots
+	}
+	return true;
+}
+//ff1.1 end
+
+//ff1.3 start
+
+/*
+===============
+idInventory::HasPwAmmo
+===============
+*/
+int idInventory::HasPwAmmo( int weaponIndex ) {
+	if ( weaponIndex < 0 || weaponIndex >= MAX_WEAPONS ) {
+		return -1;
+	}
+	return pw_ammo[weaponIndex];
+}
+
+
+/*
+===============
+idInventory::UsePwAmmo
+===============
+*/
+bool idInventory::UsePwAmmo( int weaponIndex, int amount ) {
+	if ( weaponIndex < 0 || weaponIndex >= MAX_WEAPONS ) {
+		return false;
+	}
+	pw_ammo[weaponIndex] -= amount;
+	if ( pw_ammo[weaponIndex] < 0 ) {
+		pw_ammo[weaponIndex] = 0;
+	}
+
+	return true;
+}
+
+/*
+===============
+idInventory::AddPwAmmo
+===============
+*/
+void idInventory::AddPwAmmo( int weaponIndex, int amount ) {
+	if ( weaponIndex < 0 || weaponIndex >= MAX_WEAPONS ) {
+		return;
+	}
+	pw_ammo[weaponIndex] += amount;
+}
+
+
+/*
+===============
+idInventory::UseSkullAmmo
+===============
+*/
+bool idInventory::UseSkullAmmo( int mode, int amount ) {
+	if ( !UseAmmo( skullAmmoType, amount ) ) { //use normal ammo
+		return false;
+	}
+
+	if ( mode != SKULL_MODE_NORMAL ) { //use special ammo too
+		if ( mode > SKULL_MODE_NORMAL && mode < MAX_SKULL_MODES ) {
+			skullSpecialAmmo[mode] -= amount;
+			//gameLocal.Printf( "SkullSpecialAmmo mode %d now is %d\n", mode, skullSpecialAmmo[mode] );
+		} else {
+			//gameLocal.Warning( "Invalid skull mode: %d\n", mode );
+			return false;
+		}
+	}
+	return true;
+}
+
+/*
+===============
+idInventory::HasSkullAmmo
+===============
+*/
+int idInventory::HasSkullAmmo( int mode ) {
+	int ammo;
+	if ( mode == SKULL_MODE_NORMAL ) {
+		ammo = HasAmmo( skullAmmoType, 1 );
+		int i;
+		for( i = 0; i < MAX_SKULL_MODES; i++ ) {
+			ammo -= skullSpecialAmmo[i];
+		}
+	} else if ( mode > SKULL_MODE_NORMAL && mode < MAX_SKULL_MODES ) {
+		ammo = skullSpecialAmmo[mode];
+	} else {
+		ammo = -1;
+	}
+	return ammo;
+}
+
+/*
+===============
+idInventory::Init
+===============
+*/
+void idInventory::Init( void ) {
+	//init skull ammo
+	skullAmmoType = AmmoIndexForAmmoClass( "ammo_skulls" );
+	//gameLocal.Printf( "skullAmmoType is %d\n", (int)skullAmmoType );
+}
+
+//ff1.3 end
+
 
 /*
 ==============
@@ -1236,6 +1781,11 @@ idPlayer::idPlayer() {
 	objectiveSystem			= NULL;
 	objectiveSystemOpen		= false;
 
+	//ivan start
+	infoGui					= NULL;
+	//infoGuiOpen				= false;
+	//ivan end
+
 #ifdef _D3XP
 	mountedObject			= NULL;
 	enviroSuitLight			= NULL;
@@ -1248,12 +1798,25 @@ idPlayer::idPlayer() {
 	lastDmgTime				= 0;
 	deathClearContentsTime	= 0;
 	lastArmorPulse			= -10000;
-	stamina					= 0.0f;
+	//ff1.3 start
+	//stamina					= 0.0f;
+	staminaHelltime			= 0;
+	staminaEnabled			= true;
+	nextStaminaDrop			= 0;
+	nextHealthDrop			= 0;
+	healthAdded				= 0;
+	nextHealthAddedReset	= 0;
+	memset( &lastKillTimes, -MASSACRE_TIME_DELTA, sizeof( lastKillTimes ) );
+	tempKillCount			= 0;
+	nextKillUpdate			= 0;
+	hudPulseFlags			= 0;
+	//ff1.3 end
+
 	healthPool				= 0.0f;
 	nextHealthPulse			= 0;
 	healthPulse				= false;
-	nextHealthTake			= 0;
-	healthTake				= false;
+	//nextHealthTake			= 0;
+	//healthTake				= false;
 
 	scoreBoardOpen			= false;
 	forceScoreBoard			= false;
@@ -1302,32 +1865,41 @@ idPlayer::idPlayer() {
 	previousWeapon			= -1;
 	weaponSwitchTime		=  0;
 	weaponEnabled			= true;
-	weapon_soulcube			= -1;
+	weaponEnabledOnRideExit	= true;
+	//weapon_soulcube			= -1;
+	weapon_possession		= -1;
+	weapon_soul2cube		= -1;
+	weapon_skull			= -1;
 	weapon_pda				= -1;
+	//weapon_linker			= -1;
+	weapon_shockrifle		= -1;
 	weapon_fists			= -1;
 #ifdef _D3XP
+	/*
 	weapon_bloodstone		= -1;
 	weapon_bloodstone_active1 = -1;
 	weapon_bloodstone_active2 = -1;
 	weapon_bloodstone_active3 = -1;
+	*/
 	harvest_lock			= false;
-
+	/*
 	hudPowerup				= -1;
 	lastHudPowerup			= -1;
 	hudPowerupDuration		= 0;
+	*/
 #endif
 	showWeaponViewModel		= true;
 
 	skin					= NULL;
 	powerUpSkin				= NULL;
 	baseSkinName			= "";
-
-	numProjectilesFired		= 0;
-	numProjectileHits		= 0;
-
-	airless					= false;
-	airTics					= 0;
-	lastAirDamage			= 0;
+	/*
+	projFired		= 0;
+	projHits		= 0;
+	*/
+	//airless					= false;
+	//airTics					= 0;
+	//lastAirDamage			= 0;
 
 	gibDeath				= false;
 	gibsLaunched			= false;
@@ -1354,9 +1926,26 @@ idPlayer::idPlayer() {
 	focusGUIent				= NULL;
 	focusUI					= NULL;
 	focusCharacter			= NULL;
-	talkCursor				= 0;
+	focusGameCover			= NULL; //ff1.3
+	talkCursor				= CURSTOR_STATE_HIDDEN;
 	focusVehicle			= NULL;
 	cursor					= NULL;
+
+    //ff1.3 start
+    //currentVehicle			= NULL;  //moved to actor
+    currentRiddenAI			= NULL;
+    nextVehicleTime			= 0;
+    advancedWeaponZoomTime	= 0;
+    advancedWeaponZooming	= false;
+    quickZoomFov			= 0.0f;
+    memset( &hitCountGroupIds, 0, sizeof( hitCountGroupIds ) );
+    nextHitCountGroupIndex	= 0;
+    lastEscPressedTime		= 0;
+    skipCinematicTipStartTime	= 0;
+    selectedGameCoverIndex	= 0;
+    selectedStatsIndex		= 0;
+    maxMapStatsIndex		= 0;
+    //ff1.3 end
 
 	oldMouseX				= 0;
 	oldMouseY				= 0;
@@ -1412,6 +2001,23 @@ idPlayer::idPlayer() {
 	isChatting				= false;
 
 	selfSmooth				= false;
+
+#ifdef _DENTONMOD
+	memset( &weaponZoom, 0, sizeof( weaponZoom ) );
+	memset(	projectileType, 0, sizeof(projectileType) );
+#endif
+
+	//ff1.3 start
+	memset( &playerStats, 0, sizeof( playerStats ) );
+	campaignSoulsCount		= 0;
+	currentStatsIndex		= 0;
+	//medalsQueue.Clear();
+	nextMedalTime			= 0;
+	medalsEnabled			= true;
+	inGameStatsVisible		= false;
+	inGameStatsCurrentMap	= false;
+	nextInvulnWarningTime	= 0;
+	//ff1.3 end
 }
 
 /*
@@ -1441,6 +2047,7 @@ void idPlayer::LinkScriptVariables( void ) {
 	AI_TELEPORT.LinkTo(			scriptObject, "AI_TELEPORT" );
 	AI_TURN_LEFT.LinkTo(		scriptObject, "AI_TURN_LEFT" );
 	AI_TURN_RIGHT.LinkTo(		scriptObject, "AI_TURN_RIGHT" );
+	AI_DODGE.LinkTo(			scriptObject, "AI_DODGE" ); //ff1.3
 }
 
 /*
@@ -1468,6 +2075,8 @@ void idPlayer::SetupWeaponEntity( void ) {
 			idWeapon::CacheWeapon( weap );
 		}
 	}
+
+	UpdateEveryAmmoOnHud(); //ff1.1
 }
 
 /*
@@ -1479,25 +2088,40 @@ void idPlayer::Init( void ) {
 	const char			*value;
 	const idKeyValue	*kv;
 
+	inventory.Init(); //ff1.3
+
 	noclip					= false;
 	godmode					= false;
 
 	oldButtons				= 0;
 	oldFlags				= 0;
 
+#ifdef _DENTONMOD
+	memset( &weaponZoom, 0, sizeof( weaponZoom ) ); // New
+#endif
+
 	currentWeapon			= -1;
 	idealWeapon				= -1;
 	previousWeapon			= -1;
 	weaponSwitchTime		= 0;
 	weaponEnabled			= true;
-	weapon_soulcube			= SlotForWeapon( "weapon_soulcube" );
+	weaponEnabledOnRideExit	= true;
+	//weapon_soulcube			= SlotForWeapon( "weapon_soulcube" ); //ff1.3 - code removed
+	weapon_possession		= SlotForWeapon( "weapon_bloodstone_possession" ); //ff1.3
+	weapon_soul2cube		= SlotForWeapon( "weapon_soul2cube" ); //ff1.3
+	weapon_skull			= SlotForWeapon( "weapon_bloodstone_skull" ); //ff1.3
 	weapon_pda				= SlotForWeapon( "weapon_pda" );
-	weapon_fists			= SlotForWeapon( "weapon_fists" );
+	//weapon_linker			= SlotForWeapon( "weapon_linker" );
+	weapon_shockrifle		= SlotForWeapon( "weapon_shockrifle" ); //ff1.3
+	weapon_fists			= SlotForWeapon( "weapon_fists" ); //ff1.3
+
 #ifdef _D3XP
+	/*
 	weapon_bloodstone		= SlotForWeapon( "weapon_bloodstone_passive" );
 	weapon_bloodstone_active1 = SlotForWeapon( "weapon_bloodstone_active1" );
 	weapon_bloodstone_active2 = SlotForWeapon( "weapon_bloodstone_active2" );
 	weapon_bloodstone_active3 = SlotForWeapon( "weapon_bloodstone_active3" );
+	*/
 	harvest_lock			= false;
 #endif
 	showWeaponViewModel		= GetUserInfo()->GetBool( "ui_showGun" );
@@ -1537,10 +2161,12 @@ void idPlayer::Init( void ) {
 	bloomEnabled			= false;
 	bloomSpeed				= 1.f;
 	bloomIntensity			= -0.01f;
-	inventory.InitRechargeAmmo(this);
+	/*
+	//inventory.InitRechargeAmmo(this); //ff1.3 - removed
 	hudPowerup				= -1;
 	lastHudPowerup			= -1;
 	hudPowerupDuration		= 0;
+	*/
 #endif
 
 	currentLoggedAccel		= 0;
@@ -1549,8 +2175,26 @@ void idPlayer::Init( void ) {
 	focusGUIent				= NULL;
 	focusUI					= NULL;
 	focusCharacter			= NULL;
-	talkCursor				= 0;
+	focusGameCover			= NULL; //ff1.3
+	talkCursor				= CURSTOR_STATE_HIDDEN;
 	focusVehicle			= NULL;
+
+	//ff1.3 start
+	currentVehicle			= NULL;
+	currentRiddenAI			= NULL;
+	nextVehicleTime			= 0;
+	advancedWeaponZoomTime	= 0;
+	advancedWeaponZooming	= false;
+	quickZoomFov			= 0.0f;
+	memset( &hitCountGroupIds, 0, sizeof( hitCountGroupIds ) );
+	nextHitCountGroupIndex	= 0;
+
+	//stats - must be done before RestorePersistantInfo();
+	memset( &playerStats, 0, sizeof( playerStats ) );
+	campaignSoulsCount = 0;
+	currentStatsIndex = 0;
+
+	//ff1.3 end
 
 	// remove any damage effects
 	playerView.ClearEffects();
@@ -1562,13 +2206,26 @@ void idPlayer::Init( void ) {
 	// restore persistent data
 	RestorePersistantInfo();
 
-	bobCycle		= 0;
-	stamina			= 0.0f;
-	healthPool		= 0.0f;
-	nextHealthPulse = 0;
-	healthPulse		= false;
-	nextHealthTake	= 0;
-	healthTake		= false;
+	bobCycle				= 0;
+	//ff1.3 start
+	//stamina			= 0.0f;
+	//staminaHelltime			= 0;   //set by RestorePersistantInfo
+	staminaEnabled			= true;
+	nextStaminaDrop			= 0;
+	nextHealthDrop			= 0;
+	healthAdded				= 0;
+	nextHealthAddedReset	= 0;
+	memset( &lastKillTimes, -MASSACRE_TIME_DELTA, sizeof( lastKillTimes ) );
+	tempKillCount			= 0;
+	nextKillUpdate			= 0;
+	hudPulseFlags			= 0;
+	//ff1.3 end
+
+	healthPool				= 0.0f;
+	nextHealthPulse			= 0;
+	healthPulse				= false;
+	//nextHealthTake			= 0;
+	//healthTake				= false;
 
 	SetupWeaponEntity();
 	currentWeapon = -1;
@@ -1591,6 +2248,8 @@ void idPlayer::Init( void ) {
 		}
 	}
 
+	//ff1.3 start - disable stamina
+	/* was:
 	// disable stamina on hell levels
 	if ( gameLocal.world && gameLocal.world->spawnArgs.GetBool( "no_stamina" ) ) {
 		pm_stamina.SetFloat( 0.0f );
@@ -1598,10 +2257,20 @@ void idPlayer::Init( void ) {
 
 	// stamina always initialized to maximum
 	stamina = pm_stamina.GetFloat();
+	*/
+
+	//medals
+	medalsQueue.Clear();
+	nextMedalTime = 0;
+	medalsEnabled = true;
+	inGameStatsVisible = false;
+	inGameStatsCurrentMap = false;
+	nextInvulnWarningTime = 0;
+	//ff1.3 end
 
 	// air always initialized to maximum too
-	airTics = pm_airTics.GetFloat();
-	airless = false;
+	//airTics = pm_airTics.GetFloat();
+	//airless = false;
 
 	gibDeath = false;
 	gibsLaunched = false;
@@ -1618,13 +2287,21 @@ void idPlayer::Init( void ) {
 	viewBobAngles.Zero();
 	viewBob.Zero();
 
-	value = spawnArgs.GetString( "model" );
+	if ( !spawnArgs.GetString( "spawn_model", NULL, &value ) ) { //ff1.3 - add support for custom model
+		value = spawnArgs.GetString( "model" );
+	}
 	if ( value && ( *value != 0 ) ) {
 		SetModel( value );
 	}
 
+	//ff1.3 start
+	if ( spawnArgs.GetString( "spawn_def_head", NULL, &value ) && head.GetEntity() ) {
+		head.GetEntity()->SetModel(value);
+	}
+	//ff1.3 end
+
 	if ( cursor ) {
-		cursor->SetStateInt( "talkcursor", 0 );
+		cursor->SetStateInt( "talkcursor", CURSTOR_STATE_HIDDEN );
 		cursor->SetStateString( "combatcursor", "1" );
 		cursor->SetStateString( "itemcursor", "0" );
 		cursor->SetStateString( "guicursor", "0" );
@@ -1680,6 +2357,7 @@ void idPlayer::Init( void ) {
 	AI_TELEPORT		= false;
 	AI_TURN_LEFT	= false;
 	AI_TURN_RIGHT	= false;
+	AI_DODGE		= false; //ff1.3
 
 	// reset the script object
 	ConstructScriptObject();
@@ -1718,6 +2396,7 @@ void idPlayer::Init( void ) {
 
 	//isChatting = false;
 	cvarSystem->SetCVarBool("ui_chat", false);
+
 }
 
 /*
@@ -1784,6 +2463,19 @@ void idPlayer::Spawn( void ) {
 
 		objectiveSystem = uiManager->FindGui( "guis/pda.gui", true, false, true );
 		objectiveSystemOpen = false;
+
+		//ivan start
+		if ( objectiveSystem ) { //default primary objective
+			objectiveSystem->SetStateString( "missionobjective", "Find the exit." );
+		}
+
+		infoGui = uiManager->FindGui( "guis/info.gui", true, false, true );
+		//infoGuiOpen = false;
+		//todo: activate only when visible, see objectiveSystem
+		if ( infoGui ) {
+			infoGui->Activate( true, gameLocal.time );
+		}
+		//ivan end
 	}
 
 	SetLastHitTime( 0 );
@@ -1847,6 +2539,7 @@ void idPlayer::Spawn( void ) {
 	}
 	if ( hud ) {
 		// We can spawn with a full soul cube, so we need to make sure the hud knows this
+/*
 #ifndef _D3XP
 		if ( weapon_soulcube > 0 && ( inventory.weapons & ( 1 << weapon_soulcube ) ) ) {
 			int max_souls = inventory.MaxAmmoForAmmoClass( this, "ammo_souls" );
@@ -1864,7 +2557,12 @@ void idPlayer::Spawn( void ) {
 			//}
 		}
 #endif
+*/
 		hud->HandleNamedEvent( "itemPickup" );
+	}
+
+	if( !gameLocal.mapInfo.noDefaultPda && !GetPDA() ) {
+		GivePDA(NULL, NULL); //give default (personal) pda
 	}
 
 	if ( GetPDA() ) {
@@ -1901,6 +2599,10 @@ void idPlayer::Spawn( void ) {
 	inventory.selPDA = 0;
 
 	if ( !gameLocal.isMultiplayer ) {
+		//ff start
+		//g_armorProtection.SetFloat( 0.4f ); //?
+		//ff end
+
 		if ( g_skill.GetInteger() < 2 ) {
 			if ( health < 25 ) {
 				health = 25;
@@ -1918,12 +2620,15 @@ void idPlayer::Spawn( void ) {
 #else
 			g_damageScale.SetFloat( 1.0f );
 #endif
-			g_armorProtection.SetFloat( ( g_skill.GetInteger() < 2 ) ? 0.4f : 0.2f );
-
+			//ff start
+			//g_armorProtection.SetFloat( ( g_skill.GetInteger() < 2 ) ? 0.4f : 0.2f );
+			//ff end
+			/*
 			if ( g_skill.GetInteger() == 3 ) {
 				healthTake = true;
 				nextHealthTake = gameLocal.time + g_healthTakeTime.GetInteger() * 1000;
 			}
+			*/
 		}
 	}
 
@@ -1934,6 +2639,7 @@ void idPlayer::Spawn( void ) {
 	while( kv ) {
 		WeaponToggle_t newToggle;
 		strcpy(newToggle.name, kv->GetKey().c_str());
+		//newToggle.lastSelected = -1; //ff1.3
 
 		idStr toggleData = kv->GetValue();
 
@@ -1956,7 +2662,12 @@ void idPlayer::Spawn( void ) {
 	}
 #endif
 
+#ifdef _DENTONMOD
+	memset(	projectileType, 0, sizeof(projectileType) );
+#endif
+
 #ifdef _D3XP
+	/* ff - commented out
 	if(g_skill.GetInteger() >= 3) {
 		if(!WeaponAvailable("weapon_bloodstone_passive")) {
 			GiveInventoryItem("weapon_bloodstone_passive");
@@ -1971,11 +2682,16 @@ void idPlayer::Spawn( void ) {
 			GiveInventoryItem("weapon_bloodstone_active3");
 		}
 	}
+	*/
 
 	bloomEnabled			= false;
 	bloomSpeed				= 1;
 	bloomIntensity			= -0.01f;
 #endif
+
+	//ff1.3 start
+	quickZoomFov = spawnArgs.GetFloat( "zoomFov", "75" );
+	//ff1.3 end
 }
 
 /*
@@ -2035,19 +2751,32 @@ void idPlayer::Save( idSaveGame *savefile ) const {
 	savefile->WriteUserInterface( objectiveSystem, false );
 	savefile->WriteBool( objectiveSystemOpen );
 
-	savefile->WriteInt( weapon_soulcube );
+	//ivan start
+	savefile->WriteUserInterface( infoGui, false );
+	//savefile->WriteBool( infoGuiOpen );
+	//ivan end
+
+	//savefile->WriteInt( weapon_soulcube );
+	savefile->WriteInt( weapon_possession );
+	savefile->WriteInt( weapon_soul2cube );
+	savefile->WriteInt( weapon_skull );
 	savefile->WriteInt( weapon_pda );
+	//savefile->WriteInt( weapon_linker );
+	savefile->WriteInt( weapon_shockrifle );
 	savefile->WriteInt( weapon_fists );
 #ifdef _D3XP
+	/*
 	savefile->WriteInt( weapon_bloodstone );
 	savefile->WriteInt( weapon_bloodstone_active1 );
 	savefile->WriteInt( weapon_bloodstone_active2 );
 	savefile->WriteInt( weapon_bloodstone_active3 );
+	*/
 	savefile->WriteBool( harvest_lock );
+	/*
 	savefile->WriteInt( hudPowerup );
 	savefile->WriteInt( lastHudPowerup );
 	savefile->WriteInt( hudPowerupDuration );
-
+    */
 
 #endif
 
@@ -2064,15 +2793,32 @@ void idPlayer::Save( idSaveGame *savefile ) const {
 	savefile->WriteInt( deathClearContentsTime );
 	savefile->WriteBool( doingDeathSkin );
 	savefile->WriteInt( lastArmorPulse );
-	savefile->WriteFloat( stamina );
+	//ff1.3 start
+	//savefile->WriteFloat( stamina );
+	savefile->WriteInt( staminaHelltime );
+	savefile->WriteBool( staminaEnabled );
+	savefile->WriteInt( nextStaminaDrop );
+	savefile->WriteInt( nextHealthDrop );
+	savefile->WriteInt( healthAdded );
+	savefile->WriteInt( nextHealthAddedReset );
+	for( i = 0; i < MASSACRE_KILLS; i++ ) {
+		savefile->WriteInt( lastKillTimes[ i ] );
+	}
+	savefile->WriteInt( tempKillCount );
+	savefile->WriteInt( nextKillUpdate );
+	savefile->WriteInt( hudPulseFlags );
+	//ff1.3 end
 	savefile->WriteFloat( healthPool );
 	savefile->WriteInt( nextHealthPulse );
 	savefile->WriteBool( healthPulse );
-	savefile->WriteInt( nextHealthTake );
-	savefile->WriteBool( healthTake );
+	//savefile->WriteInt( nextHealthTake );
+	//savefile->WriteBool( healthTake );
 
 	savefile->WriteBool( hiddenWeapon );
-	soulCubeProjectile.Save( savefile );
+	//soulCubeProjectile.Save( savefile ); //ff1.3 - removed
+	//possessionProjectile.Save( savefile ); //ff1.3
+	painKillerProjectile.Save( savefile ); //ff1.3
+	remoteGrenadeProjectile.Save( savefile ); //ff1.3
 
 	savefile->WriteInt( spectator );
 	savefile->WriteVec3( colorBar );
@@ -2135,22 +2881,64 @@ void idPlayer::Save( idSaveGame *savefile ) const {
 	savefile->WriteInt( previousWeapon );
 	savefile->WriteInt( weaponSwitchTime );
 	savefile->WriteBool( weaponEnabled );
+	savefile->WriteBool( weaponEnabledOnRideExit ); //ff1.3
 	savefile->WriteBool( showWeaponViewModel );
 
 	savefile->WriteSkin( skin );
 	savefile->WriteSkin( powerUpSkin );
 	savefile->WriteString( baseSkinName );
-
-	savefile->WriteInt( numProjectilesFired );
-	savefile->WriteInt( numProjectileHits );
+	/*
+	savefile->WriteInt( projFired );
+	savefile->WriteInt( projHits );
 
 	savefile->WriteBool( airless );
 	savefile->WriteInt( airTics );
 	savefile->WriteInt( lastAirDamage );
+	*/
 
 	savefile->WriteBool( gibDeath );
 	savefile->WriteBool( gibsLaunched );
 	savefile->WriteVec3( gibsDir );
+
+	//ff1.3 start
+
+	//stats
+	savefile->WriteInt( playerStats.killCount );
+	savefile->WriteInt( playerStats.soulsCount );
+	savefile->WriteInt( playerStats.multikill );
+	savefile->WriteInt( playerStats.skillshot );
+	savefile->WriteInt( playerStats.doublekill );
+	savefile->WriteInt( playerStats.massacre );
+	savefile->WriteInt( playerStats.chainkill );
+	savefile->WriteInt( playerStats.secretsFound );
+	savefile->WriteInt( playerStats.gameCoversFound );
+	savefile->WriteInt( playerStats.damage );
+	savefile->WriteInt( playerStats.projFired );
+	savefile->WriteInt( playerStats.projHits );
+
+	savefile->WriteInt( campaignSoulsCount );
+	savefile->WriteInt( currentStatsIndex );
+
+	//medals
+	savefile->WriteInt( medalsQueue.Num() );
+	for( i = 0; i < medalsQueue.Num(); i++ ) {
+		savefile->WriteInt( medalsQueue[ i ] );
+	}
+	savefile->WriteInt( nextMedalTime );
+	savefile->WriteBool( medalsEnabled );
+	savefile->WriteBool( inGameStatsVisible );
+	savefile->WriteBool( inGameStatsCurrentMap );
+	savefile->WriteInt( nextInvulnWarningTime );
+	//ff1.3 end
+
+#ifdef _DENTONMOD
+	weaponZoom_s flags = weaponZoom;			// Save the weapon Zoom Info
+	LittleBitField( &flags, sizeof( flags ) );
+	savefile->Write( &flags, sizeof( flags ) );
+	for( i = 0; i < MAX_WEAPONS; i++ ) {
+		savefile->WriteByte( projectileType[ i ] );
+	}
+#endif
 
 	savefile->WriteFloat( zoomFov.GetStartTime() );
 	savefile->WriteFloat( zoomFov.GetDuration() );
@@ -2188,7 +2976,26 @@ void idPlayer::Save( idSaveGame *savefile ) const {
 	savefile->WriteInt( talkCursor );
 	savefile->WriteInt( focusTime );
 	savefile->WriteObject( focusVehicle );
+	savefile->WriteObject( focusGameCover ); //ff1.3
 	savefile->WriteUserInterface( cursor, false );
+
+	//ff1.3 start
+	//savefile->WriteObject( currentVehicle );  //moved to actor
+	savefile->WriteObject( currentRiddenAI );
+	savefile->WriteInt( nextVehicleTime );
+	savefile->WriteInt( advancedWeaponZoomTime );
+	savefile->WriteBool( advancedWeaponZooming );
+	savefile->WriteFloat( quickZoomFov );
+	for( i = 0; i < NUM_HIT_COUNT_GROUP_IDS; i++ ) {
+		savefile->WriteInt( hitCountGroupIds[ i ] );
+	}
+	savefile->WriteInt( nextHitCountGroupIndex );
+	savefile->WriteInt( lastEscPressedTime );
+	savefile->WriteInt( skipCinematicTipStartTime );
+	savefile->WriteInt( selectedGameCoverIndex );
+	savefile->WriteInt( selectedStatsIndex );
+	savefile->WriteInt( maxMapStatsIndex );
+	//ff1.3 end
 
 	savefile->WriteInt( oldMouseX );
 	savefile->WriteInt( oldMouseY );
@@ -2214,18 +3021,26 @@ void idPlayer::Save( idSaveGame *savefile ) const {
 	savefile->WriteInt( lastSpectateChange );
 	savefile->WriteInt( lastTeleFX );
 
-	savefile->WriteFloat( pm_stamina.GetFloat() );
-
+	//ff1.3 start
+	//savefile->WriteFloat( pm_stamina.GetFloat() );
+	if ( infoGui && gameLocal.time > 500 ) { //don't show on map start (it looks bad in intros)
+		infoGui->SetStateString( "message", (gameLocal.IsAutoSaving() ? "Autosave..." : "Game Saved...") );
+		infoGui->HandleNamedEvent( "Message" );
+	}
+	/* was:
 	if ( hud ) {
 		hud->SetStateString( "message", common->GetLanguageDict()->GetString( "#str_02916" ) );
 		hud->HandleNamedEvent( "Message" );
 	}
+	*/
+	//ff1.3 end
 
 #ifdef _D3XP
 	savefile->WriteInt(weaponToggles.Num());
 	for(i = 0; i < weaponToggles.Num(); i++) {
 		WeaponToggle_t* weaponToggle = weaponToggles.GetIndex(i);
 		savefile->WriteString(weaponToggle->name);
+		//savefile->WriteInt(weaponToggle->lastSelected); //ff1.3
 		savefile->WriteInt(weaponToggle->toggleList.Num());
 		for(int j = 0; j < weaponToggle->toggleList.Num(); j++) {
 			savefile->WriteInt(weaponToggle->toggleList[j]);
@@ -2294,20 +3109,32 @@ void idPlayer::Restore( idRestoreGame *savefile ) {
 	savefile->ReadUserInterface( objectiveSystem );
 	savefile->ReadBool( objectiveSystemOpen );
 
-	savefile->ReadInt( weapon_soulcube );
+	//ivan start
+	savefile->ReadUserInterface( infoGui );
+	//savefile->ReadBool( infoGuiOpen );
+	//ivan end
+
+	//savefile->ReadInt( weapon_soulcube );
+	savefile->ReadInt( weapon_possession );
+	savefile->ReadInt( weapon_soul2cube );
+	savefile->ReadInt( weapon_skull );
 	savefile->ReadInt( weapon_pda );
+	//savefile->ReadInt( weapon_linker );
+	savefile->ReadInt( weapon_shockrifle );
 	savefile->ReadInt( weapon_fists );
 #ifdef _D3XP
+	/*
 	savefile->ReadInt( weapon_bloodstone );
 	savefile->ReadInt( weapon_bloodstone_active1 );
 	savefile->ReadInt( weapon_bloodstone_active2 );
 	savefile->ReadInt( weapon_bloodstone_active3 );
-
+	*/
 	savefile->ReadBool( harvest_lock );
+	/*
 	savefile->ReadInt( hudPowerup );
 	savefile->ReadInt( lastHudPowerup );
 	savefile->ReadInt( hudPowerupDuration );
-
+    */
 
 #endif
 
@@ -2328,15 +3155,32 @@ void idPlayer::Restore( idRestoreGame *savefile ) {
 	savefile->ReadInt( deathClearContentsTime );
 	savefile->ReadBool( doingDeathSkin );
 	savefile->ReadInt( lastArmorPulse );
-	savefile->ReadFloat( stamina );
+	//ff1.3 start
+	//savefile->ReadFloat( stamina );
+	savefile->ReadInt( staminaHelltime );
+	savefile->ReadBool( staminaEnabled );
+	savefile->ReadInt( nextStaminaDrop );
+	savefile->ReadInt( nextHealthDrop );
+	savefile->ReadInt( healthAdded );
+	savefile->ReadInt( nextHealthAddedReset );
+	for( i = 0; i < MASSACRE_KILLS; i++ ) {
+		savefile->ReadInt( lastKillTimes[ i ] );
+	}
+	savefile->ReadInt( tempKillCount );
+	savefile->ReadInt( nextKillUpdate );
+	savefile->ReadInt( hudPulseFlags );
+	//ff1.3 end
 	savefile->ReadFloat( healthPool );
 	savefile->ReadInt( nextHealthPulse );
 	savefile->ReadBool( healthPulse );
-	savefile->ReadInt( nextHealthTake );
-	savefile->ReadBool( healthTake );
+	//savefile->ReadInt( nextHealthTake );
+	//savefile->ReadBool( healthTake );
 
 	savefile->ReadBool( hiddenWeapon );
-	soulCubeProjectile.Restore( savefile );
+	//soulCubeProjectile.Restore( savefile ); //ff1.3 - removed
+	//possessionProjectile.Restore( savefile ); //ff1.3
+	painKillerProjectile.Restore( savefile ); //ff1.3
+	remoteGrenadeProjectile.Restore( savefile ); //ff1.3
 
 	savefile->ReadInt( spectator );
 	savefile->ReadVec3( colorBar );
@@ -2403,22 +3247,66 @@ void idPlayer::Restore( idRestoreGame *savefile ) {
 	savefile->ReadInt( previousWeapon );
 	savefile->ReadInt( weaponSwitchTime );
 	savefile->ReadBool( weaponEnabled );
+	savefile->ReadBool( weaponEnabledOnRideExit ); //ff1.3
 	savefile->ReadBool( showWeaponViewModel );
 
 	savefile->ReadSkin( skin );
 	savefile->ReadSkin( powerUpSkin );
 	savefile->ReadString( baseSkinName );
-
-	savefile->ReadInt( numProjectilesFired );
-	savefile->ReadInt( numProjectileHits );
+	/*
+	savefile->ReadInt( projFired );
+	savefile->ReadInt( projHits );
 
 	savefile->ReadBool( airless );
 	savefile->ReadInt( airTics );
 	savefile->ReadInt( lastAirDamage );
+	*/
 
 	savefile->ReadBool( gibDeath );
 	savefile->ReadBool( gibsLaunched );
 	savefile->ReadVec3( gibsDir );
+
+	//ff1.3 start
+
+	//stats
+	savefile->ReadInt( playerStats.killCount );
+	savefile->ReadInt( playerStats.soulsCount );
+	savefile->ReadInt( playerStats.multikill );
+	savefile->ReadInt( playerStats.skillshot );
+	savefile->ReadInt( playerStats.doublekill );
+	savefile->ReadInt( playerStats.massacre );
+	savefile->ReadInt( playerStats.chainkill );
+	savefile->ReadInt( playerStats.secretsFound );
+	savefile->ReadInt( playerStats.gameCoversFound );
+	savefile->ReadInt( playerStats.damage );
+	savefile->ReadInt( playerStats.projFired );
+	savefile->ReadInt( playerStats.projHits );
+
+	savefile->ReadInt( campaignSoulsCount );
+	savefile->ReadInt( currentStatsIndex );
+
+	//medals
+	medalsQueue.Clear();
+	savefile->ReadInt( num );
+	medalsQueue.SetNum( num );
+	for( i = 0; i < medalsQueue.Num(); i++ ) {
+		savefile->ReadInt( medalsQueue[ i ] );
+	}
+	savefile->ReadInt( nextMedalTime );
+	savefile->ReadBool( medalsEnabled );
+	savefile->ReadBool( inGameStatsVisible );
+	savefile->ReadBool( inGameStatsCurrentMap );
+	savefile->ReadInt( nextInvulnWarningTime );
+	//ff1.3 end
+
+#ifdef _DENTONMOD
+	// Remember the order of saving this info...
+	savefile->Read( &weaponZoom, sizeof( weaponZoom ) );
+	LittleBitField( &weaponZoom, sizeof( weaponZoom ) );
+	for( i = 0; i < MAX_WEAPONS; i++ ) {
+		savefile->ReadByte( projectileType[ i ] );
+	}
+#endif
 
 	savefile->ReadFloat( set );
 	zoomFov.SetStartTime( set );
@@ -2465,7 +3353,26 @@ void idPlayer::Restore( idRestoreGame *savefile ) {
 	savefile->ReadInt( talkCursor );
 	savefile->ReadInt( focusTime );
 	savefile->ReadObject( reinterpret_cast<idClass *&>( focusVehicle ) );
+	savefile->ReadObject( reinterpret_cast<idClass *&>( focusGameCover ) );
 	savefile->ReadUserInterface( cursor );
+
+	//ff1.3 start
+	//savefile->ReadObject( reinterpret_cast<idClass *&>( currentVehicle ) ); //moved to actor
+	savefile->ReadObject( reinterpret_cast<idClass *&>( currentRiddenAI ) );
+	savefile->ReadInt( nextVehicleTime );
+	savefile->ReadInt( advancedWeaponZoomTime );
+	savefile->ReadBool( advancedWeaponZooming );
+	savefile->ReadFloat( quickZoomFov );
+	for( i = 0; i < NUM_HIT_COUNT_GROUP_IDS; i++ ) {
+		savefile->ReadInt( hitCountGroupIds[ i ] );
+	}
+	savefile->ReadInt( nextHitCountGroupIndex );
+	savefile->ReadInt( lastEscPressedTime );
+	savefile->ReadInt( skipCinematicTipStartTime );
+	savefile->ReadInt( selectedGameCoverIndex );
+	savefile->ReadInt( selectedStatsIndex );
+	savefile->ReadInt( maxMapStatsIndex );
+	//ff1.3 end
 
 	savefile->ReadInt( oldMouseX );
 	savefile->ReadInt( oldMouseY );
@@ -2499,8 +3406,8 @@ void idPlayer::Restore( idRestoreGame *savefile ) {
 		kv = spawnArgs.MatchPrefix( "pm_", kv );
 	}
 
-	savefile->ReadFloat( set );
-	pm_stamina.SetFloat( set );
+	//savefile->ReadFloat( set );
+	//pm_stamina.SetFloat( set );
 
 	// create combat collision hull for exact collision detection
 	SetCombatModel();
@@ -2515,6 +3422,7 @@ void idPlayer::Restore( idRestoreGame *savefile ) {
 		idStr name;
 		savefile->ReadString(name);
 		strcpy(newToggle.name, name.c_str());
+		//savefile->ReadInt(newToggle.lastSelected); //ff1.3
 
 		int indexCount;
 		savefile->ReadInt(indexCount);
@@ -2629,14 +3537,28 @@ use normal spawn selection.
 */
 void idPlayer::SelectInitialSpawnPoint( idVec3 &origin, idAngles &angles ) {
 	idEntity *spot;
-	idStr skin;
+	idStr value;
 
 	spot = gameLocal.SelectInitialSpawnPoint( this );
 
 	// set the player skin from the spawn location
-	if ( spot->spawnArgs.GetString( "skin", NULL, skin ) ) {
-		spawnArgs.Set( "spawn_skin", skin );
+	if ( spot->spawnArgs.GetString( "skin", NULL, value ) ) {
+		spawnArgs.Set( "spawn_skin", value );
 	}
+
+	//ff1.3 start
+	if ( spot->spawnArgs.GetString( "model_player", NULL, value ) ) {
+		spawnArgs.Set( "spawn_model", value );
+	}
+
+	if ( spot->spawnArgs.GetString( "def_head", NULL, value ) ) {
+		spawnArgs.Set( "spawn_def_head", value );
+	}
+
+	if ( spot->spawnArgs.GetString( "pda_name_personal", NULL, value ) ) {
+		spawnArgs.Set( "pda_name_personal", value );
+	}
+	//ff1.3 end
 
 	// activate the spawn locations targets
 	spot->PostEventMS( &EV_ActivateTargets, 0, this );
@@ -2775,6 +3697,7 @@ void idPlayer::SpawnToPoint( const idVec3 &spawn_origin, const idAngles &spawn_a
 idPlayer::SavePersistantInfo
 
 Saves any inventory and player stats when changing levels.
+NOTE: also called on savegame. Must not change the state!
 ===============
 */
 void idPlayer::SavePersistantInfo( void ) {
@@ -2784,6 +3707,84 @@ void idPlayer::SavePersistantInfo( void ) {
 	inventory.GetPersistantData( playerInfo );
 	playerInfo.SetInt( "health", health );
 	playerInfo.SetInt( "current_weapon", currentWeapon );
+
+	//ff1.3 start
+	playerInfo.SetInt( "staminaHelltime", staminaHelltime );
+	playerInfo.SetInt( "campaignSoulsCount", campaignSoulsCount );
+
+	//add current level stats for campaign maps
+
+	//copy old stats
+	const idKeyValue *kv = spawnArgs.MatchPrefix( "stat_", NULL );
+	while ( kv ) {
+		playerInfo.Set( kv->GetKey().c_str(), kv->GetValue().c_str() );
+		//gameLocal.Printf("Copying %s (%s) in PersistantInfo\n", kv->GetKey().c_str(), kv->GetValue().c_str());
+		kv = spawnArgs.MatchPrefix( "stat_", kv );
+	}
+
+	//store map index for scripts
+	playerInfo.SetInt( "prev_map_index", currentStatsIndex ); //also used by scripts
+
+	//for some reason this method is called also when map starts, but we want to save stats only at the end...
+
+	//store stats for scripts and PDA
+	if ( !gameLocal.mapInfo.noStats ) {
+		//gameLocal.Printf("Saving stat_m%d_* in PersistantInfo\n", currentStatsIndex);
+		playerInfo.Set( va("stat_file_%d"				, currentStatsIndex),		gameLocal.GetMapName() );
+		playerInfo.SetInt( va("stat_m%d_skill"			, currentStatsIndex),		gameLocal.mapStats.skill );
+		playerInfo.SetInt( va("stat_m%d_time"			, currentStatsIndex),		gameLocal.mapStats.time );
+		if ( gameLocal.mapStats.skillChanged ) {
+			playerInfo.SetBool( va("stat_m%d_skillChanged"	, currentStatsIndex),	gameLocal.mapStats.skillChanged );
+		}
+		if ( gameLocal.mapStats.numSecrets ) {
+			playerInfo.SetInt( va("stat_m%d_numSecrets"		, currentStatsIndex),	gameLocal.mapStats.numSecrets );
+		}
+		if ( gameLocal.mapStats.numGameCovers ) {
+			playerInfo.SetInt( va("stat_m%d_numGameCovers"	, currentStatsIndex),	gameLocal.mapStats.numGameCovers );
+		}
+		if ( playerStats.killCount ) {
+			playerInfo.SetInt( va("stat_m%d_killCount"		, currentStatsIndex),	playerStats.killCount );
+		}
+		if ( playerStats.soulsCount ) {
+			playerInfo.SetInt( va("stat_m%d_souls"			, currentStatsIndex),	playerStats.soulsCount );
+		}
+		if ( playerStats.multikill ) {
+			playerInfo.SetInt( va("stat_m%d_multikill"		, currentStatsIndex),	playerStats.multikill );
+		}
+		if ( playerStats.skillshot ) {
+			playerInfo.SetInt( va("stat_m%d_skillshot"		, currentStatsIndex),	playerStats.skillshot );
+		}
+		if ( playerStats.doublekill ) {
+			playerInfo.SetInt( va("stat_m%d_doublekill"		, currentStatsIndex),	playerStats.doublekill );
+		}
+		if ( playerStats.massacre ) {
+			playerInfo.SetInt( va("stat_m%d_massacre"		, currentStatsIndex),	playerStats.massacre );
+		}
+		if ( playerStats.chainkill ) {
+			playerInfo.SetInt( va("stat_m%d_chainkill"		, currentStatsIndex),	playerStats.chainkill );
+		}
+		if ( playerStats.secretsFound ) {
+			playerInfo.SetInt( va("stat_m%d_secrets"		, currentStatsIndex),	playerStats.secretsFound );
+		}
+		if ( playerStats.gameCoversFound ) {
+			playerInfo.SetInt( va("stat_m%d_gameCovers"		, currentStatsIndex),	playerStats.gameCoversFound );
+		}
+		if ( playerStats.damage ) {
+			playerInfo.SetInt( va("stat_m%d_damage"			, currentStatsIndex),	playerStats.damage );
+		}
+		if ( playerStats.projFired ) {
+			playerInfo.SetInt( va("stat_m%d_projFired"		, currentStatsIndex),	playerStats.projFired );
+		}
+		if ( playerStats.projHits ) {
+			playerInfo.SetInt( va("stat_m%d_projHits"		, currentStatsIndex),	playerStats.projHits );
+		}
+		//playerInfo.SetInt( "currentStatsIndex", currentStatsIndex ); //store it only if stats are also saved
+	}
+
+	//gameLocal.Printf("SavePersistantInfo\n");
+	//playerInfo.Print();
+
+	//ff1.3 end
 }
 
 /*
@@ -2803,8 +3804,267 @@ void idPlayer::RestorePersistantInfo( void ) {
 	inventory.RestoreInventory( this, spawnArgs );
 	health = spawnArgs.GetInt( "health", "100" );
 	if ( !gameLocal.isClient ) {
-		idealWeapon = spawnArgs.GetInt( "current_weapon", "1" );
+		idealWeapon = spawnArgs.GetInt( "current_weapon", "0" ); //ff1.3 - was 0
 	}
+
+	//ff1.3 start
+	staminaHelltime = spawnArgs.GetInt( "staminaHelltime" );
+	campaignSoulsCount = spawnArgs.GetInt( "campaignSoulsCount" );
+
+	//find index for current map
+	if ( gameLocal.mapInfo.noStats ) {
+		currentStatsIndex = -1;
+	} else if ( !FindPersistedStatsIndex( gameLocal.GetMapName(), currentStatsIndex ) ) {
+		currentStatsIndex = FirstFreeStatsIndex();
+	}
+
+	//NOTE: if first map is noStats max index will be -1
+	maxMapStatsIndex = Max( currentStatsIndex, spawnArgs.GetInt( "prev_map_index", "-1" ) );
+
+	//select map in PDA
+	if ( gameLocal.mapInfo.noStats ) {
+		selectedStatsIndex = CampaignStatsIndex(); //set selection to campaign
+	} else {
+		selectedStatsIndex = currentStatsIndex; //set selection to current map
+	}
+
+	/*
+	gameLocal.Printf("**********\ncurrentStatsIndex: %d\nselectedStatsIndex: %d\nmaxMapStatsIndex: %d\n**********\n",
+		currentStatsIndex, selectedStatsIndex, maxMapStatsIndex);
+	*/
+	//ff1.3 end
+}
+
+/*
+================
+idPlayer::FindPersistedStatsIndex
+================
+*/
+bool idPlayer::FindPersistedStatsIndex( const char *mapName, int &statsIndex ) {
+	const idKeyValue *kv = spawnArgs.MatchPrefix( "stat_file_", NULL );
+	while ( kv ) {
+		if ( !idStr::Icmp( kv->GetValue().c_str(), mapName ) ) {
+			idStr key = kv->GetKey().c_str();
+			if( key.StripLeadingOnce( "stat_file_" ) ) {
+				statsIndex = atoi( key );
+				return true;
+			}
+		}
+		kv = spawnArgs.MatchPrefix( "stat_file_", kv );
+	}
+	return false;
+}
+
+/*
+================
+idPlayer::FirstFreeStatsIndex
+================
+*/
+int idPlayer::FirstFreeStatsIndex( void ) {
+	int statsIndex = 0;
+	while ( spawnArgs.FindKey( va("stat_file_%d", statsIndex) ) != NULL ) {
+		statsIndex++;
+	}
+	return statsIndex;
+}
+
+/*
+================
+idPlayer::CampaignStatsIndex
+================
+*/
+int idPlayer::CampaignStatsIndex( void ) {
+	return maxMapStatsIndex + (( gameLocal.campaignInfo.maps > 1 ) ? 1 : 0);
+}
+
+
+/*
+================
+idPlayer::LoadStatsForStatsIndex
+================
+*/
+void idPlayer::LoadStatsForStatsIndex( int statsIndex, playerStats_t &playerStats, mapStats_t &mapStats ) {
+	playerStats.killCount		= spawnArgs.GetInt( va("stat_m%d_killCount", statsIndex) );
+	playerStats.soulsCount		= spawnArgs.GetInt( va("stat_m%d_souls", statsIndex) );
+	playerStats.multikill		= spawnArgs.GetInt( va("stat_m%d_multikill", statsIndex) );
+	playerStats.skillshot		= spawnArgs.GetInt( va("stat_m%d_skillshot", statsIndex) );
+	playerStats.doublekill		= spawnArgs.GetInt( va("stat_m%d_doublekill", statsIndex) );
+	playerStats.massacre		= spawnArgs.GetInt( va("stat_m%d_massacre", statsIndex) );
+	playerStats.chainkill		= spawnArgs.GetInt( va("stat_m%d_chainkill", statsIndex) );
+	playerStats.secretsFound	= spawnArgs.GetInt( va("stat_m%d_secrets", statsIndex) );
+	playerStats.gameCoversFound	= spawnArgs.GetInt( va("stat_m%d_gameCovers", statsIndex) );
+	playerStats.damage			= spawnArgs.GetInt( va("stat_m%d_damage", statsIndex) );
+	playerStats.projFired		= spawnArgs.GetInt( va("stat_m%d_projFired", statsIndex) );
+	playerStats.projHits		= spawnArgs.GetInt( va("stat_m%d_projHits", statsIndex) );
+	mapStats.time				= spawnArgs.GetInt( va("stat_m%d_time", statsIndex) );
+	mapStats.skill				= spawnArgs.GetInt( va("stat_m%d_skill", statsIndex) );
+	mapStats.skillChanged		= spawnArgs.GetBool( va("stat_m%d_skillChanged", statsIndex) );
+	mapStats.numSecrets			= spawnArgs.GetInt( va("stat_m%d_numSecrets", statsIndex) );
+	mapStats.numGameCovers		= spawnArgs.GetInt( va("stat_m%d_numGameCovers", statsIndex) );
+}
+
+/*
+================
+idPlayer::LoadMapInfoForStatsIndex
+================
+*/
+void idPlayer::LoadMapInfoForStatsIndex( int statsIndex, mapInfo_t &mapInfo ) {
+	gameLocal.LoadMapInfo( spawnArgs.GetString( va("stat_file_%d", statsIndex) ), mapInfo );
+}
+
+/*
+================
+idPlayer::CalculateCampaignStats
+================
+*/
+void idPlayer::CalculateCampaignStats( playerStats_t &campaignPlayerStats, mapStats_t &campaignMapStats ) {
+	bool extraSecretFound;
+	playerStats_t tempPlayerStats;
+	mapStats_t tempMapStats;
+
+	memset( &campaignPlayerStats, 0, sizeof( campaignPlayerStats ) );
+	memset( &campaignMapStats, 0, sizeof( campaignMapStats ) );
+	campaignMapStats.skill = g_skill.GetInteger();
+
+	for ( int i = 0; i <= maxMapStatsIndex; i ++ ) {
+		if ( i == currentStatsIndex ) {
+			tempPlayerStats = playerStats;
+			tempMapStats = gameLocal.mapStats;
+			if ( !tempMapStats.time ) { //map stats not yet "committed"
+				tempMapStats.time = gameLocal.GetTimeStat();
+			}
+		} else {
+			LoadStatsForStatsIndex( i, tempPlayerStats, tempMapStats );
+		}
+		campaignPlayerStats.killCount		+= tempPlayerStats.killCount;
+		campaignPlayerStats.soulsCount		+= tempPlayerStats.soulsCount;
+		campaignPlayerStats.multikill		+= tempPlayerStats.multikill;
+		campaignPlayerStats.skillshot		+= tempPlayerStats.skillshot;
+		campaignPlayerStats.doublekill		+= tempPlayerStats.doublekill;
+		campaignPlayerStats.massacre		+= tempPlayerStats.massacre;
+		campaignPlayerStats.chainkill		+= tempPlayerStats.chainkill;
+		campaignPlayerStats.secretsFound	+= tempPlayerStats.secretsFound;
+		campaignPlayerStats.gameCoversFound	+= tempPlayerStats.gameCoversFound;
+		campaignPlayerStats.damage			+= tempPlayerStats.damage;
+		campaignPlayerStats.projFired		+= tempPlayerStats.projFired;
+		campaignPlayerStats.projHits		+= tempPlayerStats.projHits;
+		campaignMapStats.time				+= tempMapStats.time;
+		campaignMapStats.numSecrets			+= tempMapStats.numSecrets;
+		campaignMapStats.numGameCovers		+= tempMapStats.numGameCovers;
+
+		if ( tempMapStats.skillChanged || campaignMapStats.skill != tempMapStats.skill ) {
+			campaignMapStats.skillChanged = true;
+		}
+	}
+
+	if ( spawnArgs.GetBool( "stat_extra_secret", "0", extraSecretFound ) ){
+		campaignMapStats.numSecrets++; //the secret exists if the key has been set
+		if ( extraSecretFound ) {
+			campaignPlayerStats.secretsFound++;
+		}
+	}
+}
+
+
+/*
+================
+idPlayer::Event_ShowStats
+================
+*/
+void idPlayer::Event_ShowStats( const char *mapName, int showEvent ) {
+	int statsIndex;
+
+	if ( !infoGui || inGameStatsVisible ) {
+		idThread::ReturnInt( -1 );
+		return;
+	}
+
+	if ( !idStr::Cmp( mapName, "campaign" ) ) { //campaign
+		playerStats_t campaignPlayerStats;
+		mapStats_t campaignStats;
+
+		statsIndex = CampaignStatsIndex();
+		if ( showEvent && !gameLocal.mapStats.time ) { //"commit" map time if needed
+			gameLocal.mapStats.time = gameLocal.GetTimeStat();
+		}
+		CalculateCampaignStats( campaignPlayerStats, campaignStats );
+		DisplayCampaignStats( infoGui, campaignPlayerStats, campaignStats, gameLocal.campaignInfo, true );
+		//gameLocal.PersistCampaignStats( campaignPlayerStats, campaignStats );
+		inGameStatsCurrentMap = false;
+		if ( showEvent ) {
+			inGameStatsVisible = true;
+			infoGui->HandleNamedEvent( "showMapEnding" );
+		}
+	} else if ( !idStr::Cmp( mapName, "map" ) || !idStr::Cmp( mapName, gameLocal.GetMapName() ) ) { //current map
+		statsIndex = currentStatsIndex;
+		if ( showEvent && !gameLocal.mapStats.time ) { //"commit" map time if needed
+			gameLocal.mapStats.time = gameLocal.GetTimeStat();
+		}
+		DisplayMapStats( infoGui, playerStats, gameLocal.mapStats, gameLocal.mapInfo, true );
+		inGameStatsCurrentMap = true;
+		if ( showEvent ) {
+			inGameStatsVisible = true;
+			infoGui->HandleNamedEvent( "showMapEnding" );
+		}
+	} else if ( FindPersistedStatsIndex( mapName, statsIndex ) ) { //completed maps
+		mapInfo_t completedMapInfo;
+		playerStats_t completedPlayerStats;
+		mapStats_t completedMapStats;
+
+		LoadStatsForStatsIndex( statsIndex, completedPlayerStats, completedMapStats );
+		LoadMapInfoForStatsIndex( statsIndex, completedMapInfo );
+		DisplayMapStats( infoGui, completedPlayerStats, completedMapStats, completedMapInfo, true );
+		inGameStatsCurrentMap = false;
+		if ( showEvent ) {
+			inGameStatsVisible = true;
+			infoGui->HandleNamedEvent( "showMapSummary" );
+		}
+	} else {
+		mapInfo_t newMapInfo;
+		playerStats_t newPlayerStats;
+		mapStats_t newMapStats;
+
+		memset( &newPlayerStats, 0, sizeof( newPlayerStats ) );
+		memset( &newMapStats, 0, sizeof( newMapStats ) );
+		gameLocal.LoadMapInfo( mapName, newMapInfo );
+
+		DisplayMapStats( infoGui, newPlayerStats, newMapStats, newMapInfo, false );
+		statsIndex = -1; //not yet completed
+		inGameStatsCurrentMap = false;
+		if ( showEvent ) {
+			inGameStatsVisible = true;
+			infoGui->HandleNamedEvent( "showMapPreview" );
+		}
+	}
+
+	idThread::ReturnInt( statsIndex );
+}
+
+/*
+================
+idPlayer::Event_HideStats
+================
+*/
+void idPlayer::Event_HideStats( void ) {
+	if ( infoGui && inGameStatsVisible ) {
+		inGameStatsVisible = false;
+		inGameStatsCurrentMap = false;
+		infoGui->HandleNamedEvent( "hideMapInfo" );
+
+		//reset time so it'll be updated again, but not during final cinematic
+		if ( !gameLocal.inCinematic ) {
+			gameLocal.mapStats.time = 0;
+		}
+	}
+}
+
+/*
+================
+idPlayer::Event_GetAmmoForWeapon
+================
+*/
+void idPlayer::Event_GetAmmoForWeapon( const char *weaponClassName ) {
+	idThread::ReturnInt( inventory.HasAmmo( weaponClassName, true, this ) );
 }
 
 /*
@@ -2980,43 +4240,53 @@ idPlayer::UpdateHudAmmo
 void idPlayer::UpdateHudAmmo( idUserInterface *_hud ) {
 	int inclip;
 	int ammoamount;
+	int clipSize;
+	int pwAmmo;
+	int i;
 
 	assert( weapon.GetEntity() );
 	assert( _hud );
 
 	inclip		= weapon.GetEntity()->AmmoInClip();
 	ammoamount	= weapon.GetEntity()->AmmoAvailable();
+	clipSize	= weapon.GetEntity()->ClipSize();
+	pwAmmo		= weapon.GetEntity()->PwAmmoAvailable(); //GetPwAmmoCurrentWeapon();
 
-#ifdef _D3XP
-	//Hack to stop the bloodstone ammo to display when it is being activated
-	if ( ammoamount < 0 || !weapon.GetEntity()->IsReady() || currentWeapon == weapon_bloodstone) {
-#else
-	if ( ammoamount < 0 || !weapon.GetEntity()->IsReady() ) {
-#endif
+	if ( (!pwAmmo && ammoamount < 0 ) || !weapon.GetEntity()->IsReady() ) {
 		// show infinite ammo
-		_hud->SetStateString( "player_ammo", "" );
-		_hud->SetStateString( "player_totalammo", "" );
+		_hud->SetStateString( "player_allammo", "" );
+		_hud->SetStateString( "weapicon","" );
+		_hud->SetStateBool( "show_skull_ammo", false );
+	} else if( currentWeapon == weapon_skull ){ //fix for skulls weapon
+		pwAmmo = 0; //use 'pwAmmo' var for special skull ammo
+		for( i = 0; i < MAX_SKULL_MODES; i++ ) {
+			_hud->SetStateInt( va( "special_skull_ammo%d",i ), inventory.skullSpecialAmmo[i] );
+			pwAmmo += inventory.skullSpecialAmmo[i];
+		}
+		inclip =  ammoamount - pwAmmo;
+		_hud->SetStateInt( "default_skull_ammo",  inclip );
+		_hud->SetStateString( "player_allammo", va( "%i", inclip) );
+		_hud->SetStateString( "weapicon", weapon.GetEntity()->Icon() );
+		_hud->SetStateBool( "show_skull_ammo", true );
+	} else if ( pwAmmo || (currentWeapon == weapon_shockrifle && painKillerProjectile.GetEntity() ) ){
+		_hud->SetStateString( "player_allammo", va( "%i", pwAmmo ) );
+		_hud->SetStateString( "weapicon", weapon.GetEntity()->IconPw() );
+		_hud->SetStateBool( "show_skull_ammo", false );
 	} else {
-		// show remaining ammo
-#ifdef _D3XP
-		_hud->SetStateString( "player_totalammo", va( "%i", ammoamount ) );
-#else
-		_hud->SetStateString( "player_totalammo", va( "%i", ammoamount - inclip ) );
-#endif
-		_hud->SetStateString( "player_ammo", weapon.GetEntity()->ClipSize() ? va( "%i", inclip ) : "--" );		// how much in the current clip
-		_hud->SetStateString( "player_clips", weapon.GetEntity()->ClipSize() ? va( "%i", ammoamount / weapon.GetEntity()->ClipSize() ) : "--" );
-
-#ifdef _D3XP
-		_hud->SetStateString( "player_allammo", va( "%i/%i", inclip, ammoamount ) );
-#else
-		_hud->SetStateString( "player_allammo", va( "%i/%i", inclip, ammoamount - inclip ) );
-#endif
+		_hud->SetStateString( "player_allammo", clipSize ? va( "%i / %i", inclip, ammoamount ) :  va( "%i", ammoamount ) );
+		_hud->SetStateString( "weapicon", weapon.GetEntity()->Icon() );
+		_hud->SetStateBool( "show_skull_ammo", false );
 	}
 
-	_hud->SetStateBool( "player_ammo_empty", ( ammoamount == 0 ) );
-	_hud->SetStateBool( "player_clip_empty", ( weapon.GetEntity()->ClipSize() ? inclip == 0 : false ) );
-	_hud->SetStateBool( "player_clip_low", ( weapon.GetEntity()->ClipSize() ? inclip <= weapon.GetEntity()->LowAmmo() : false ) );
+	//ff1.3
 
+	/* ff1.3 - removed:
+	_hud->SetStateBool( "player_ammo_empty", ( ammoamount == 0 ) );
+	_hud->SetStateBool( "player_clip_empty", ( clipSize ? inclip == 0 : false ) );
+	_hud->SetStateBool( "player_clip_low", ( clipSize ? inclip <= weapon.GetEntity()->LowAmmo() : false ) );
+	*/
+
+	/*
 #ifdef _D3XP
 	//Hack to stop the bloodstone ammo to display when it is being activated
 	if(currentWeapon == weapon_bloodstone) {
@@ -3026,11 +4296,14 @@ void idPlayer::UpdateHudAmmo( idUserInterface *_hud ) {
 	}
 #endif
 
+
 #ifdef _D3XP
 	//Let the HUD know the total amount of ammo regardless of the ammo required value
 	_hud->SetStateString( "player_ammo_count", va("%i", weapon.GetEntity()->AmmoCount()));
 #endif
+*/
 
+	/*
 #ifdef _D3XP
 	//Make sure the hud always knows how many bloodstone charges there are
 	int ammoRequired;
@@ -3039,6 +4312,7 @@ void idPlayer::UpdateHudAmmo( idUserInterface *_hud ) {
 	_hud->SetStateString("player_bloodstone_ammo", va("%i", bloodstoneAmmo));
 	_hud->HandleNamedEvent( "bloodstoneAmmoUpdate" );
 #endif
+	*/
 
 	_hud->HandleNamedEvent( "updateAmmo" );
 }
@@ -3048,12 +4322,18 @@ void idPlayer::UpdateHudAmmo( idUserInterface *_hud ) {
 idPlayer::UpdateHudStats
 ===============
 */
+
+#define HEALTH_ADDER_SHOW_TIME	 200	//must match gui time
+
 void idPlayer::UpdateHudStats( idUserInterface *_hud ) {
+	/* ff1.3
 	int staminapercentage;
 	float max_stamina;
+	*/
 
 	assert( _hud );
 
+	/* ff1.3
 	max_stamina = pm_stamina.GetFloat();
 	if ( !max_stamina ) {
 		// stamina disabled, so show full stamina bar
@@ -3061,13 +4341,33 @@ void idPlayer::UpdateHudStats( idUserInterface *_hud ) {
 	} else {
 		staminapercentage = idMath::FtoiFast( 100.0f * stamina / max_stamina );
 	}
+	*/
+
+	//medals moved to own method...
+
+	if ( currentVehicle ) {
+		currentVehicle->UpdateHudStats( _hud );
+	} else if ( currentRiddenAI ) {
+		currentRiddenAI->UpdateHudStats( _hud );
+	}
+
+	//ff1.3 start
+	if ( advancedWeaponZooming && zoomFov.GetStartValue() - zoomFov.GetEndValue() > 0.0f ) {
+		_hud->SetStateInt( "player_weapzoom", 100.0f * (zoomFov.GetStartValue() - zoomFov.GetCurrentValue(advancedWeaponZoomTime ? advancedWeaponZoomTime : gameLocal.time))/(zoomFov.GetStartValue() - zoomFov.GetEndValue()) );
+	} else {
+		_hud->SetStateInt( "player_weapzoom", 0.0f);
+	}
+	//ff1.3 end
 
 	_hud->SetStateInt( "player_health", health );
-	_hud->SetStateInt( "player_stamina", staminapercentage );
+	//_hud->SetStateInt( "player_stamina", staminapercentage );
+	_hud->SetStateInt( "player_stamina", staminaHelltime );
+	_hud->SetStateInt("player_helltime_enabled", staminaEnabled ? 1 : 0 );
+
 	_hud->SetStateInt( "player_armor", inventory.armor );
 	_hud->SetStateInt( "player_hr", heartRate );
 
-	_hud->SetStateInt( "player_nostamina", ( max_stamina == 0 ) ? 1 : 0 );
+	//_hud->SetStateInt( "player_nostamina", ( max_stamina == 0 ) ? 1 : 0 );
 
 	_hud->HandleNamedEvent( "updateArmorHealthAir" );
 
@@ -3075,21 +4375,50 @@ void idPlayer::UpdateHudStats( idUserInterface *_hud ) {
 	_hud->HandleNamedEvent( "updatePowerup" );
 #endif
 
+	if ( hudPulseFlags ) {
+		if( hudPulseFlags & HUD_PULSE_SOUL ){
+			_hud->SetStateInt( "campaign_souls", campaignSoulsCount );
+			_hud->HandleNamedEvent( "soulPulse" );
+		}
+
+		if( hudPulseFlags & HUD_PULSE_HEALTH_ADDER ){
+			if( nextHealthAddedReset < gameLocal.time ){ //too much time elapsed
+				_hud->SetStateString("health_added", va( "+%d", healthAdded ) );
+				_hud->HandleNamedEvent( "add_new_energy" );
+			} else {
+				healthAdded += _hud->GetStateInt( "health_added" );
+				_hud->SetStateString("health_added", va( "+%d", healthAdded ) );
+				_hud->HandleNamedEvent( "upd_last_energy" );
+			}
+			healthAdded = 0;
+			nextHealthAddedReset = gameLocal.time + HEALTH_ADDER_SHOW_TIME;
+		}
+
+		if( hudPulseFlags & HUD_PULSE_HEALTH_ICON ){
+			_hud->HandleNamedEvent( "extra_energy" );
+		}
+
+		hudPulseFlags = 0;
+	}
+
 	if ( healthPulse ) {
 		_hud->HandleNamedEvent( "healthPulse" );
 		StartSound( "snd_healthpulse", SND_CHANNEL_ITEM, 0, false, NULL );
 		healthPulse = false;
 	}
 
+	/*
 	if ( healthTake ) {
 		_hud->HandleNamedEvent( "healthPulse" );
 		StartSound( "snd_healthtake", SND_CHANNEL_ITEM, 0, false, NULL );
 		healthTake = false;
 	}
+	*/
 
 	if ( inventory.ammoPulse ) {
 		_hud->HandleNamedEvent( "ammoPulse" );
 		inventory.ammoPulse = false;
+		UpdateEveryAmmoOnHud(); //ff1.1
 	}
 	if ( inventory.weaponPulse ) {
 		// We need to update the weapon hud manually, but not
@@ -3117,13 +4446,143 @@ void idPlayer::UpdateHudStats( idUserInterface *_hud ) {
 		_hud->HandleNamedEvent( "BlueFlagStatusChange" );
 	}
 
-	_hud->HandleNamedEvent( "selfTeam" );
+	//ff1.3 line removed - was:  _hud->HandleNamedEvent( "selfTeam" );
 
 #endif
 
-
-	UpdateHudAmmo( _hud );
+    UpdateHudAmmo( _hud );
 }
+//ff1.3 start
+
+/*
+===============
+idPlayer::DisplayCampaignStats
+===============
+*/
+void idPlayer::DisplayCampaignStats( idUserInterface *_gui, playerStats_t &campaignPlayerStats, mapStats_t &campaignStats, campaignInfo_t &campaignInfo, bool completed ) {
+	DisplayStats( _gui, campaignPlayerStats, campaignStats, "Campaign Totals", campaignInfo.img, completed, completed ); //show totals only when completed
+}
+
+
+/*
+===============
+idPlayer::DisplayMapStats
+===============
+*/
+void idPlayer::DisplayMapStats( idUserInterface *_gui, playerStats_t &playerStats, mapStats_t &mapStats, mapInfo_t &mapInfo, bool completed ) {
+	DisplayStats( _gui, playerStats, mapStats, mapInfo.title.c_str(), mapInfo.img.c_str(), completed, true );
+}
+
+/*
+===============
+idPlayer::DisplayStats
+===============
+*/
+void idPlayer::DisplayStats( idUserInterface *_gui, playerStats_t &playerStats, mapStats_t &mapStats, const char *statsTitle, const char *statsImg, bool completed, bool showTotals ) {
+	const char *skill;
+	int time;
+
+	if ( mapStats.time ) {
+		time = mapStats.time;
+	} else { //map time not yet "committed"
+		time = gameLocal.GetTimeStat();
+	}
+
+	_gui->SetStateInt( "stat_souls",			playerStats.soulsCount );
+	_gui->SetStateInt( "stat_killCount",		playerStats.killCount );
+	_gui->SetStateInt( "stat_doublekill",		playerStats.doublekill );
+	_gui->SetStateInt( "stat_multikill",		playerStats.multikill );
+	_gui->SetStateInt( "stat_skillshot",		playerStats.skillshot );
+	_gui->SetStateInt( "stat_chainkill",		playerStats.chainkill );
+	_gui->SetStateInt( "stat_massacre",			playerStats.massacre );
+
+	if ( playerStats.projFired ) {
+		_gui->SetStateString( "stat_accuracy", va( "%.1f%%", ( (float) playerStats.projHits / playerStats.projFired ) * 100 ) );
+	} else {
+		_gui->SetStateString( "stat_accuracy", "0.0%" );
+	}
+
+	if ( showTotals ) {
+		_gui->SetStateString( "stat_secrets", va( "%d / %d", playerStats.secretsFound, mapStats.numSecrets ) );
+		_gui->SetStateString( "stat_gameCovers", va( "%d / %d", playerStats.gameCoversFound, mapStats.numGameCovers ) );
+	} else {
+		_gui->SetStateString( "stat_secrets", va( "%d", playerStats.secretsFound ) );
+		_gui->SetStateString( "stat_gameCovers", va( "%d", playerStats.gameCoversFound ) );
+	}
+
+	_gui->SetStateInt( "stat_damage", playerStats.damage );
+
+	switch( mapStats.skill ) {
+		case 0: {
+			skill = "Rookie";
+			break;
+		}
+		case 1: {
+			skill = "Veteran";
+			break;
+		}
+		case 2: {
+			skill = "Pro";
+			break;
+		}
+		case 3: {
+			skill = "Master";
+			break;
+		}
+		default: {
+			skill =  "Unknown";
+		}
+	}
+	_gui->SetStateString( "stat_skill", mapStats.skillChanged ? va( "%s (changed)", skill ) : skill );
+	_gui->SetStateBool( "stat_completed", completed );
+	_gui->SetStateString( "stat_title", statsTitle );
+	_gui->SetStateString( "stat_img", statsImg );
+	_gui->SetStateString( "stat_time", va( "%d:%02d:%02d", time / (3600 * 1000), (time / (60 * 1000)) % 60, (time / 1000) % 60 ));
+}
+
+/*
+===============
+idPlayer::UpdatePDAStats
+===============
+*/
+void idPlayer::UpdatePDAStats( idUserInterface *_gui ) {
+	if ( selectedStatsIndex > maxMapStatsIndex ) { //campaign
+		playerStats_t campaignPlayerStats;
+		mapStats_t campaignStats;
+		CalculateCampaignStats( campaignPlayerStats, campaignStats );
+		DisplayCampaignStats( _gui, campaignPlayerStats, campaignStats, gameLocal.campaignInfo, false );
+	} else if ( selectedStatsIndex == currentStatsIndex ) { //current map
+		DisplayMapStats( _gui, playerStats, gameLocal.mapStats, gameLocal.mapInfo, false );
+	} else { //completed maps
+		mapInfo_t completedMapInfo;
+		playerStats_t completedPlayerStats;
+		mapStats_t completedMapStats;
+		LoadStatsForStatsIndex( selectedStatsIndex, completedPlayerStats, completedMapStats );
+		LoadMapInfoForStatsIndex( selectedStatsIndex, completedMapInfo );
+		DisplayMapStats( _gui, completedPlayerStats, completedMapStats, completedMapInfo, true );
+	}
+
+	_gui->SetStateBool( "has_prev_stats", (selectedStatsIndex > 0) );
+	_gui->SetStateBool( "has_next_stats", (selectedStatsIndex < CampaignStatsIndex()) ); //reserve 1 for Campaign stats
+
+	//UpdateChallanges( _gui, playerStats, mapStats, (selectedStatsIndex < currentStatsIndex) );
+}
+
+
+
+/*
+===============
+idPlayer::UpdateChallanges
+===============
+
+void idPlayer::UpdateChallanges( idUserInterface *_gui, playerStats_t &playerStats, mapStats_t &mapStats, bool failedIfNotCompleted ) {
+	_gui->SetStateInt( "chal_damage", ( playerStats.damage == 0 ) ? 1 : ( failedIfNotCompleted ? -1 : 0 ) );
+	_gui->SetStateInt( "chal_secrets", ( playerStats.secretsFound == mapStats.numSecrets ) ? 1 : ( failedIfNotCompleted ? -1 : 0 ) );
+	_gui->SetStateInt( "chal_gameCovers", ( playerStats.gameCoversFound == mapStats.numGameCovers ) ? 1 : ( failedIfNotCompleted ? -1 : 0 ) );
+}
+*/
+
+//ff1.3 end
 
 /*
 ===============
@@ -3146,6 +4605,7 @@ void idPlayer::UpdateHudWeapon( bool flashWeapon ) {
 		return;
 	}
 
+	int lastWeaponSlotIndex = -1; //ff1.3
 	for ( int i = 0; i < MAX_WEAPONS; i++ ) {
 		const char *weapnum = va( "def_weapon%d", i );
 		const char *hudWeap = va( "weapon%d", i );
@@ -3160,7 +4620,24 @@ void idPlayer::UpdateHudWeapon( bool flashWeapon ) {
 			}
 		}
 		hud->SetStateInt( hudWeap, weapstate );
+
+		//ff1.3 start
+		const char *hudWeapSlot = va( "slot_weapon%d", i );
+		int weaponSlotIndex;
+		if (weapstate > 0 && i != weapon_fists ) {
+			weaponSlotIndex = ++lastWeaponSlotIndex;
+		} else {
+			weaponSlotIndex = -1;
+		}
+		hud->SetStateInt( hudWeapSlot, weaponSlotIndex );
+		//ff1.3 end
 	}
+
+	//ff1.3 start
+	hud->SetStateInt( "weapon_last_slot", lastWeaponSlotIndex );
+	hud->SetStateInt( "skull_mode", inventory.skullMode );
+	//ff1.3 end
+
 	if ( flashWeapon ) {
 
 /*#ifdef _D3XP
@@ -3185,41 +4662,56 @@ idPlayer::DrawHUD
 ===============
 */
 void idPlayer::DrawHUD( idUserInterface *_hud ) {
-
+	/* ff1.3 was:
 	if ( !weapon.GetEntity() || influenceActive != INFLUENCE_NONE || privateCameraView || gameLocal.GetCamera() || !_hud || !g_showHud.GetBool() ) {
 		return;
 	}
+	*/
+	if( !g_showHud.GetBool() ) {
+		return;
+	}
+	if ( weapon.GetEntity() && influenceActive == INFLUENCE_NONE && !privateCameraView && !gameLocal.GetCamera() && _hud ) {
 
-	UpdateHudStats( _hud );
+		UpdateHudStats( _hud );
 
-	_hud->SetStateString( "weapicon", weapon.GetEntity()->Icon() );
+		//_hud->SetStateString( "weapicon", weapon.GetEntity()->Icon() );
 
-	// FIXME: this is temp to allow the sound meter to show up in the hud
-	// it should be commented out before shipping but the code can remain
-	// for mod developers to enable for the same functionality
-	_hud->SetStateInt( "s_debug", cvarSystem->GetCVarInteger( "s_showLevelMeter" ) );
+		// FIXME: this is temp to allow the sound meter to show up in the hud
+		// it should be commented out before shipping but the code can remain
+		// for mod developers to enable for the same functionality
+		_hud->SetStateInt( "s_debug", cvarSystem->GetCVarInteger( "s_showLevelMeter" ) );
 
-	weapon.GetEntity()->UpdateGUI();
+		weapon.GetEntity()->UpdateGUI();
 
-	_hud->Redraw( gameLocal.realClientTime );
+		_hud->Redraw( gameLocal.realClientTime );
 
-	// weapon targeting crosshair
-	if ( !GuiActive() ) {
-		if ( cursor && weapon.GetEntity()->ShowCrosshair() ) {
+		// weapon targeting crosshair
+		if ( !GuiActive() && !inGameStatsVisible ) { //ff1.3 inGameStatsVisible added
+			if ( cursor && weapon.GetEntity()->ShowCrosshair() ) {
 
 #ifdef _D3XP
-			if ( weapon.GetEntity()->GetGrabberState() == 1 || weapon.GetEntity()->GetGrabberState() == 2 ) {
-				cursor->SetStateString( "grabbercursor", "1" );
-				cursor->SetStateString( "combatcursor", "0" );
-			} else {
-				cursor->SetStateString( "grabbercursor", "0" );
-				cursor->SetStateString( "combatcursor", "1" );
-			}
+				if ( weapon.GetEntity()->GetGrabberState() == 1 || weapon.GetEntity()->GetGrabberState() == 2 || weapon.GetEntity()->GetGrabberState() == 4) { //ff added 4 = vehicle
+					cursor->SetStateString( "grabbercursor", "1" );
+					cursor->SetStateString( "combatcursor", "0" );
+				} else {
+					cursor->SetStateString( "grabbercursor", "0" );
+					cursor->SetStateString( "combatcursor", "1" );
+				}
 #endif
 
-			cursor->Redraw( gameLocal.realClientTime );
+				cursor->Redraw( gameLocal.realClientTime );
+			}
 		}
 	}
+
+	//ff start
+	if ( /*infoGuiOpen &&*/ infoGui ) {
+		if ( inGameStatsCurrentMap ) {
+			DisplayMapStats( infoGui, playerStats, gameLocal.mapStats, gameLocal.mapInfo, true );
+		}
+		infoGui->Redraw( gameLocal.realClientTime );
+	}
+	//ff end
 }
 
 /*
@@ -3230,11 +4722,21 @@ idPlayer::EnterCinematic
 void idPlayer::EnterCinematic( void ) {
 #ifdef _D3XP
 	if ( PowerUpActive( HELLTIME ) ) {
-		StopHelltime();
+		ClearPowerup( HELLTIME );
 	}
 #endif
 
-	Hide();
+	//ff1.3 start
+	//Hide();
+	if ( currentVehicle ) {
+		currentVehicle->PostEventMS( &EV_Hide, 0 );
+	} else if ( currentRiddenAI ) {
+		currentRiddenAI->PostEventMS( &EV_Hide, 0 );
+	} else {
+		Hide();
+	}
+	//ff1.3 end
+
 	StopAudioLog();
 	StopSound( SND_CHANNEL_PDA, false );
 	if ( hud ) {
@@ -3270,6 +4772,7 @@ void idPlayer::EnterCinematic( void ) {
 	AI_TELEPORT		= false;
 	AI_TURN_LEFT	= false;
 	AI_TURN_RIGHT	= false;
+	AI_DODGE		= false; //ff1.3
 }
 
 /*
@@ -3278,7 +4781,17 @@ idPlayer::ExitCinematic
 ===============
 */
 void idPlayer::ExitCinematic( void ) {
-	Show();
+
+	//ff1.3 start
+	//Show();
+	if ( currentVehicle ) {
+		currentVehicle->PostEventMS( &EV_Show, 0 );
+	} else if ( currentRiddenAI ) {
+		currentRiddenAI->PostEventMS( &EV_Show, 0 );
+	} else {
+		Show();
+	}
+	//ff1.3 end
 
 	if ( weaponEnabled && weapon.GetEntity() ) {
 		weapon.GetEntity()->ExitCinematic();
@@ -3325,7 +4838,9 @@ void idPlayer::UpdateConditions( void ) {
 		AI_STRAFE_RIGHT	= false;
 	}
 
-	AI_RUN			= ( usercmd.buttons & BUTTON_RUN ) && ( ( !pm_stamina.GetFloat() ) || ( stamina > pm_staminathreshold.GetFloat() ) );
+	//ff1.3 start - always run! I mean... walk :)
+	//AI_RUN			= ( usercmd.buttons & BUTTON_RUN ) && ( ( !pm_stamina.GetFloat() ) || ( stamina > pm_staminathreshold.GetFloat() ) );
+	//ff1.3 end
 	AI_DEAD			= ( health <= 0 );
 }
 
@@ -3358,6 +4873,7 @@ void idPlayer::StopFiring( void ) {
 	AI_RELOAD		= false;
 	if ( weapon.GetEntity() ) {
 		weapon.GetEntity()->EndAttack();
+		weapon.GetEntity()->EndSpecialFunction(); //ivan - force also the end of secondary fire.
 	}
 }
 
@@ -3366,7 +4882,7 @@ void idPlayer::StopFiring( void ) {
 idPlayer::FireWeapon
 ===============
 */
-void idPlayer::FireWeapon( void ) {
+void idPlayer::FireWeapon( bool keyTapped ) { //parameter added
 	idMat3 axis;
 	idVec3 muzzle;
 
@@ -3382,15 +4898,26 @@ void idPlayer::FireWeapon( void ) {
 	}
 
 	if ( !hiddenWeapon && weapon.GetEntity()->IsReady() ) {
-		if ( weapon.GetEntity()->AmmoInClip() || weapon.GetEntity()->AmmoAvailable() ) {
+		//ff1.3 start
+		if ( painKillerProjectile.GetEntity() != NULL ) {
+			if ( keyTapped ) {
+				painKillerProjectile.GetEntity()->StartReturnPhase();
+			}
+		} else
+		//ff1.3 end
+
+		if ( weapon.GetEntity()->AmmoInClip() || weapon.GetEntity()->AmmoAvailable() || weapon.GetEntity()->PwAmmoAvailable() ) { //ff1.1 - pw added
 			AI_ATTACK_HELD = true;
 			weapon.GetEntity()->BeginAttack();
+			/*
 			if ( ( weapon_soulcube >= 0 ) && ( currentWeapon == weapon_soulcube ) ) {
 				if ( hud ) {
 					hud->HandleNamedEvent( "soulCubeNotReady" );
 				}
 				SelectWeapon( previousWeapon, false );
 			}
+			*/
+/*
 #ifdef _D3XP
 			if( (weapon_bloodstone >= 0) && (currentWeapon == weapon_bloodstone) && inventory.weapons & ( 1 << weapon_bloodstone_active1 ) && weapon.GetEntity()->GetStatus() == WP_READY) {
 				// tell it to switch to the previous weapon. Only do this once to prevent
@@ -3405,20 +4932,24 @@ void idPlayer::FireWeapon( void ) {
 				}
 			}
 #endif
-		} else {
+*/
+		} else /*if ( keyTapped )*/ { //ff1.3 if added
 			NextBestWeapon();
 		}
 	}
 
 	if ( hud ) {
+		/* ivan - removed
 		if ( tipUp ) {
 			HideTip();
 		}
+
 		// may want to track with with a bool as well
 		// keep from looking up named events so often
 		if ( objectiveUp ) {
 			HideObjective();
 		}
+		*/
 	}
 }
 
@@ -3456,10 +4987,70 @@ idPlayer::Give
 bool idPlayer::Give( const char *statname, const char *value ) {
 	int amount;
 
+
 	if ( AI_DEAD ) {
 		return false;
 	}
 
+	//ff start
+	if ( !idStr::Icmpn( statname, "health", 6 ) ) {
+
+		if ( idStr::Icmp( statname, "health" ) ) {
+			switch( g_skill.GetInteger() ) {
+				case 0: {
+					if ( idStr::Icmp( statname, "health_easy" ) ) {
+						return false;
+					}
+					break;
+				}
+				case 1: {
+					if ( idStr::Icmp( statname, "health_medium" ) ) {
+						return false;
+					}
+					break;
+				}
+				case 2: {
+					if ( idStr::Icmp( statname, "health_hard" ) ) {
+						return false;
+					}
+					break;
+				}
+				case 3: {
+					if ( idStr::Icmp( statname, "health_nightmare" ) ) {
+						return false;
+					}
+					break;
+				}
+				default: {
+					return false;
+				}
+			}
+		}
+
+		if ( health >= inventory.maxHealth ) {
+			if ( inventory.lastFullItemName.IsEmpty() && atoi( value ) > 0 ){
+				inventory.lastFullItemName = "Health";
+			}
+			return false;
+		}
+
+		amount = atoi( value );
+		if ( amount ) {
+			health += amount;
+			if ( health > inventory.maxHealth ) {
+				health = inventory.maxHealth;
+			}
+			if ( hud ) {
+				hud->HandleNamedEvent( "healthPulse" );
+			}
+
+			inventory.AddPickupName( "Health", "", amount, this );
+			//hud
+			//healthAdded += amount;
+			//hudPulseFlags |= HUD_PULSE_HEALTH_ADDER;
+		}
+	}
+	/*
 	if ( !idStr::Icmp( statname, "health" ) ) {
 		if ( health >= inventory.maxHealth ) {
 			return false;
@@ -3475,7 +5066,16 @@ bool idPlayer::Give( const char *statname, const char *value ) {
 			}
 		}
 
-	} else if ( !idStr::Icmp( statname, "stamina" ) ) {
+	}
+	*/
+	else if ( !idStr::Icmp( statname, "takeme" ) ) { // jetpack and possession
+		return true;
+	}
+	//ff end
+
+	//ff1.3 start - disable stamina
+	/*
+    else if ( !idStr::Icmp( statname, "stamina" ) ) {
 		if ( stamina >= 100 ) {
 			return false;
 		}
@@ -3483,14 +5083,35 @@ bool idPlayer::Give( const char *statname, const char *value ) {
 		if ( stamina > 100 ) {
 			stamina = 100;
 		}
+	}
+	*/
+	else if ( !idStr::Icmp( statname, "soul" ) ) {
+		playerStats.soulsCount++;
+		campaignSoulsCount++;
+		hudPulseFlags |= HUD_PULSE_SOUL;
+		if ( campaignSoulsCount % 100 == 0 ) {
+			GiveMedal( MEDAL_100SOULS );
+		}
+	} else if ( !idStr::Icmp( statname, "monsterHealth" ) ) {
+		if ( currentRiddenAI && currentRiddenAI->health > 0 ) {
+			currentRiddenAI->health += atoi( value );
+		}
+	} else if ( !idStr::Icmp( statname, "staminaHelltime" ) ) {
+		amount = atoi( value );
 
-	} else if ( !idStr::Icmp( statname, "heartRate" ) ) {
+		staminaHelltime += amount;
+		if ( staminaHelltime > HELLTIME_STAMINA_MAX ) {
+			staminaHelltime = HELLTIME_STAMINA_MAX;
+		}
+	}
+	//ff1.3 end
+	else if ( !idStr::Icmp( statname, "heartRate" ) ) {
 		heartRate += atoi( value );
 		if ( heartRate > MAX_HEARTRATE ) {
 			heartRate = MAX_HEARTRATE;
 		}
-
 	} else if ( !idStr::Icmp( statname, "air" ) ) {
+		/* removed by ff1.3 - keep this "if" for backwark compaibility
 		if ( airTics >= pm_airTics.GetInteger() ) {
 			return false;
 		}
@@ -3498,6 +5119,7 @@ bool idPlayer::Give( const char *statname, const char *value ) {
 		if ( airTics > pm_airTics.GetInteger() ) {
 			airTics = pm_airTics.GetInteger();
 		}
+		*/
 #ifdef _D3XP
 	} else if ( !idStr::Icmp( statname, "enviroTime" ) ) {
 		if ( PowerUpActive( ENVIROTIME ) ) {
@@ -3506,11 +5128,13 @@ bool idPlayer::Give( const char *statname, const char *value ) {
 			GivePowerUp( ENVIROTIME, atoi(value)*1000 );
 		}
 	} else {
+		/*
 		bool ret = inventory.Give( this, spawnArgs, statname, value, &idealWeapon, true );
 		if(!idStr::Icmp( statname, "ammo_bloodstone" ) ) {
 			//int i = inventory.AmmoIndexForAmmoClass( statname );
 			//int max = inventory.MaxAmmoForAmmoClass( this, statname );
 			//if(hud && inventory.ammo[ i ] >= max) {
+
 			if(hud) {
 
 				//Force an update of the bloodstone ammount
@@ -3525,6 +5149,8 @@ bool idPlayer::Give( const char *statname, const char *value ) {
 			}
 		}
 		return ret;
+		*/
+		return inventory.Give( this, spawnArgs, statname, value, &idealWeapon, true );
 #else
 		return inventory.Give( this, spawnArgs, statname, value, &idealWeapon, true );
 #endif
@@ -3568,6 +5194,7 @@ bool idPlayer::GiveItem( idItem *item ) {
 	idDict				attr;
 	bool				gave;
 	int					numPickup;
+	int					amountPickup; //ff1.3
 
 	if ( gameLocal.isMultiplayer && spectating ) {
 		return false;
@@ -3577,6 +5204,7 @@ bool idPlayer::GiveItem( idItem *item ) {
 
 	gave = false;
 	numPickup = inventory.pickupItemNames.Num();
+	amountPickup = numPickup > 0 ? inventory.pickupItemNames[numPickup-1].amount : 0; //ff1.3
 	for( i = 0; i < attr.GetNumKeyVals(); i++ ) {
 		arg = attr.GetKeyVal( i );
 		if ( Give( arg->GetKey(), arg->GetValue() ) ) {
@@ -3594,8 +5222,9 @@ bool idPlayer::GiveItem( idItem *item ) {
 	}
 
 	// display the pickup feedback on the hud
-	if ( gave && ( numPickup == inventory.pickupItemNames.Num() ) ) {
-		inventory.AddPickupName( item->spawnArgs.GetString( "inv_name" ), item->spawnArgs.GetString( "inv_icon" ), this ); //_D3XP
+	//if ( gave && ( numPickup == inventory.pickupItemNames.Num() ) ) {
+	if ( gave && ( numPickup == inventory.pickupItemNames.Num() ) && ( numPickup == 0 || amountPickup == inventory.pickupItemNames[numPickup-1].amount ) ) { //ff1.3 - add case where only the amount has changed
+		inventory.AddPickupName( item->spawnArgs.GetString( "inv_name" ), item->spawnArgs.GetString( "inv_icon" ), 0, this ); //_D3XP
 	}
 
 	return gave;
@@ -3629,6 +5258,17 @@ float idPlayer::PowerUpModifier( int type ) {
 			}
 		}
 	}
+
+	//ff1.3 start
+	if ( PowerUpActive( ADRENALINE ) ) {
+		switch( type ) {
+			case SPEED: {
+				mod *= 2.0f;
+				break;
+			}
+		}
+	}
+	//ff1.3 end
 
 	if ( gameLocal.isMultiplayer && !gameLocal.isClient ) {
 		if ( PowerUpActive( MEGAHEALTH ) ) {
@@ -3674,6 +5314,17 @@ bool idPlayer::GivePowerUp( int powerup, int time ) {
 
 	if ( powerup >= 0 && powerup < MAX_POWERUPS ) {
 
+		//ff1.3 start - check preconditions before adding it to the inventory
+		switch( powerup ) {
+			case HELLTIME: {
+				if ( staminaHelltime < 5 || !staminaEnabled || IsRiding() ) {
+					return false; //not allowed
+				}
+				break;
+			}
+		}
+		//ff1.3 end
+
 		if ( gameLocal.isServer ) {
 			idBitMsg	msg;
 			byte		msgBuf[MAX_EVENT_PARAM_SIZE];
@@ -3693,7 +5344,7 @@ bool idPlayer::GivePowerUp( int powerup, int time ) {
 		switch( powerup ) {
 			case BERSERK: {
 				if(gameLocal.isMultiplayer && !gameLocal.isClient) {
-					inventory.AddPickupName("#str_00100627", "", this);
+					inventory.AddPickupName("#str_00100627", "", 0, this);
 				}
 
 				if(gameLocal.isMultiplayer) {
@@ -3724,7 +5375,7 @@ bool idPlayer::GivePowerUp( int powerup, int time ) {
 			}
 			case INVISIBILITY: {
 				if(gameLocal.isMultiplayer && !gameLocal.isClient) {
-					inventory.AddPickupName("#str_00100628", "", this);
+					inventory.AddPickupName("#str_00100628", "", 0, this);
 				}
 				spawnArgs.GetString( "skin_invisibility", "", &skin );
 				powerUpSkin = declManager->FindSkin( skin );
@@ -3742,14 +5393,14 @@ bool idPlayer::GivePowerUp( int powerup, int time ) {
 			}
 			case ADRENALINE: {
 #ifdef _D3XP
-				inventory.AddPickupName("#str_00100799", "", this);
+				inventory.AddPickupName(va("Speed +%ds", time/1000), "", 0, this); //ff1.3 - was "#str_00100799"
 #endif
-				stamina = 100.0f;
+				//stamina = 100.0f;
 				break;
 			 }
 			case MEGAHEALTH: {
 				if(gameLocal.isMultiplayer && !gameLocal.isClient) {
-					inventory.AddPickupName("#str_00100629", "", this);
+					inventory.AddPickupName("#str_00100629", "", 0, this);
 				}
 				if ( spawnArgs.GetString( "snd_megahealth", "", &sound ) ) {
 					StartSoundShader( declManager->FindSound( sound ), SND_CHANNEL_ANY, 0, false, NULL );
@@ -3768,6 +5419,16 @@ bool idPlayer::GivePowerUp( int powerup, int time ) {
 				if ( spawnArgs.GetString( "snd_helltime_loop", "", &sound ) ) {
 					PostEventMS( &EV_StartSoundShader, 0, sound, SND_CHANNEL_DEMONIC );
 				}
+				//ff1.3 start
+				//influenceMaterial = declManager->FindMaterial( "textures/decals/bloodyfilm1" );
+				bloomEnabled = true; //( g_testBloomNumPasses.GetInteger() > 0 );
+				physicsObj.SetGravityMultiplier( HELLTIME_GRAVITY_MULT );
+				/*
+				if ( weaponEnabled ) {
+					Event_DisableWeapon();
+				}
+				*/
+				//ff1.3 end
 				break;
 			}
 			case ENVIROSUIT: {
@@ -3795,16 +5456,19 @@ bool idPlayer::GivePowerUp( int powerup, int time ) {
 				break;
 			}
 			case ENVIROTIME: {
+				/* ff1.3 - not supported
 				hudPowerup = ENVIROTIME;
 				// The HUD display bar is fixed at 60 seconds
 				hudPowerupDuration = 60000;
+				*/
 				break;
 			}
 			case INVULNERABILITY: {
-				if(gameLocal.isMultiplayer && !gameLocal.isClient) {
-					inventory.AddPickupName("#str_00100630", "", this);
-				}
+
 				if(gameLocal.isMultiplayer) {
+					if(!gameLocal.isClient) {
+						inventory.AddPickupName("#str_00100630", "", 0, this);
+					}
 					/*if ( spawnArgs.GetString( "snd_invulnerable", "", &sound ) ) {
 						StartSoundShader( declManager->FindSound( sound ), SND_CHANNEL_DEMONIC, 0, false, NULL );
 					}*/
@@ -3812,6 +5476,15 @@ bool idPlayer::GivePowerUp( int powerup, int time ) {
 						powerUpSkin = declManager->FindSkin( baseSkinName + "_invuln" );
 					}
 				}
+				//ff1.3 start
+				else {
+					inventory.AddPickupName( va("Invulnerability +%ds", time/1000), "", 0, this);
+					if ( spawnArgs.GetString( "snd_invuln_start", "", &sound ) ) {
+						StartSoundShader( declManager->FindSound( sound ), SND_CHANNEL_PDA, 0, false, NULL );
+					}
+					nextInvulnWarningTime = inventory.powerupEndTime[ INVULNERABILITY ] - 2500;
+				}
+				//ff1.3 end
 				break;
 			}
 			/*case HASTE: {
@@ -3844,6 +5517,7 @@ idPlayer::ClearPowerup
 ==============
 */
 void idPlayer::ClearPowerup( int i ) {
+	const char* sound; //ff1.3
 
 	if ( gameLocal.isServer ) {
 		idBitMsg	msg;
@@ -3878,12 +5552,22 @@ void idPlayer::ClearPowerup( int i ) {
 		}
 #ifdef _D3XP
 		case HELLTIME: {
-			StopSound( SND_CHANNEL_DEMONIC, false );
+			//ff1.3 start
+			//was: StopSound( SND_CHANNEL_DEMONIC, false );
+			if ( spawnArgs.GetString( "snd_helltime_stop", "", &sound ) ) {
+				StartSoundShader( declManager->FindSound( sound ), SND_CHANNEL_DEMONIC, 0, false, NULL );
+			}
+
+			//influenceMaterial = NULL;
+			bloomEnabled = false;
+			physicsObj.SetGravityMultiplier( 1.0f );
+			gameLocal.QuickSlowmoReset();
+			//ff1.3 end
 			break;
 		}
 		case ENVIROSUIT: {
 
-			hudPowerup = -1;
+			//hudPowerup = -1;
 
 			// Turn off the envirosuit sound
 			if ( gameSoundWorld ) {
@@ -3911,6 +5595,131 @@ void idPlayer::ClearPowerup( int i ) {
 	}
 }
 
+//ff1.3 start
+/*
+===============
+idPlayer::UpdateMedalsQueue
+===============
+*/
+#define MEDAL_SHOW_TIME			2500
+
+void idPlayer::UpdateMedalsQueue( void ) {
+	if ( medalsQueue.Num() > 0 && nextMedalTime < gameLocal.slow.time ) {
+		int medalType = medalsQueue[0];
+		switch( medalType ) {
+			case MEDAL_SKILLSHOT: {
+				playerStats.skillshot++;
+				if ( hud ) {
+					hud->HandleNamedEvent( "skillshot" );
+				}
+				AddExtraHealth();
+				break;
+			}
+			case MEDAL_DOUBLEKILL: {
+				playerStats.doublekill++;
+				if ( hud ) {
+					hud->HandleNamedEvent( "doublekill" );
+				}
+				AddExtraHealth();
+				break;
+			}
+			case MEDAL_MULTIKILL: {
+				playerStats.multikill++;
+				if ( hud ) {
+					hud->HandleNamedEvent( "multikill" );
+				}
+				AddExtraHealth();
+				break;
+			}
+			case MEDAL_CHAINKILL: {
+				playerStats.chainkill++;
+				if ( hud ) {
+					hud->HandleNamedEvent( "chainkill" );
+				}
+				AddExtraHealth();
+				break;
+			}
+			case MEDAL_MASSACRE: {
+				playerStats.massacre++;
+				if ( hud ) {
+					hud->HandleNamedEvent( "massacre" );
+				}
+				AddExtraHealth();
+				break;
+			}
+			case MEDAL_100SOULS: {
+				if ( hud ) {
+					hud->HandleNamedEvent( "soulsMedal" );
+				}
+				IncreaseMaxHealth();
+				AddExtraHealth();
+				break;
+			}
+			case MEDAL_SECRET: {
+				playerStats.secretsFound++;
+				if ( hud ) {
+					hud->HandleNamedEvent( "secretFound" );
+				}
+				//AddExtraHealth();
+				break;
+			}
+			default: {
+				gameLocal.Warning("Invalid medalType %i", medalType);
+				return;
+			}
+		}
+		medalsQueue.RemoveIndex(0);
+		nextMedalTime = gameLocal.slow.time + MEDAL_SHOW_TIME;
+	}
+}
+
+
+
+/*
+==============
+idPlayer::UpdateKillsMedals
+==============
+*/
+void idPlayer::UpdateKillsMedals( void ) {
+	if ( nextKillUpdate < gameLocal.time ) {
+		if ( tempKillCount > 0 ) {
+			if ( tempKillCount == 2 ) {
+				//gameLocal.Printf("Doublekill\n");
+				GiveMedal(MEDAL_DOUBLEKILL);
+			}
+			else if ( tempKillCount > 2 ) {
+				//gameLocal.Printf("Multikill\n");
+				GiveMedal(MEDAL_MULTIKILL);
+			}
+
+			//this should always be the last medal check
+			if ( lastKillTimes[ 0 ] - lastKillTimes[ MASSACRE_KILLS-1 ] < MASSACRE_TIME_DELTA ) {
+				//gameLocal.Printf("Massacre\n");
+				GiveMedal(MEDAL_MASSACRE);
+				for( int i = 0; i < MASSACRE_KILLS; i++ ) {
+					lastKillTimes[ i ] = 0;
+				}
+			}
+		}
+		//prepare for next time
+		nextKillUpdate = gameLocal.time + 100;
+		tempKillCount = 0;
+	}
+}
+//ff1.3 end
+
+/*
+==============
+idPlayer::UpdatePowerUps
+==============
+*/
+void idPlayer::GiveMedal( int medalType ) {
+	if( !medalsEnabled ){
+		return;
+	}
+	medalsQueue.Append(medalType);
+}
+
 /*
 ==============
 idPlayer::UpdatePowerUps
@@ -3921,41 +5730,75 @@ void idPlayer::UpdatePowerUps( void ) {
 
 	if ( !gameLocal.isClient ) {
 		for ( i = 0; i < MAX_POWERUPS; i++ ) {
+			//ff1.3 start
+			if ( PowerUpActive( i ) ){
+				if ( inventory.powerupEndTime[i] <= gameLocal.slow.time ) {
+					ClearPowerup( i );
+				} else {
 #ifdef _D3XP
-			if ( ( inventory.powerups & ( 1 << i ) ) && inventory.powerupEndTime[i] > gameLocal.time ) {
-				switch( i ) {
-					case ENVIROSUIT: {
-						if ( enviroSuitLight.IsValid() ) {
-							idAngles lightAng = firstPersonViewAxis.ToAngles();
-							idVec3 lightOrg = firstPersonViewOrigin;
-							const idDict *lightDef = gameLocal.FindEntityDefDict( "envirosuit_light", false );
-
-							idVec3 enviroOffset = lightDef->GetVector( "enviro_offset" );
-							idVec3 enviroAngleOffset = lightDef->GetVector( "enviro_angle_offset" );
-
-							lightOrg += (enviroOffset.x * firstPersonViewAxis[0]);
-							lightOrg += (enviroOffset.y * firstPersonViewAxis[1]);
-							lightOrg += (enviroOffset.z * firstPersonViewAxis[2]);
-							lightAng.pitch += enviroAngleOffset.x;
-							lightAng.yaw += enviroAngleOffset.y;
-							lightAng.roll += enviroAngleOffset.z;
-
-							enviroSuitLight.GetEntity()->GetPhysics()->SetOrigin( lightOrg );
-							enviroSuitLight.GetEntity()->GetPhysics()->SetAxis( lightAng.ToMat3() );
-							enviroSuitLight.GetEntity()->UpdateVisuals();
-							enviroSuitLight.GetEntity()->Present();
+			//if ( ( inventory.powerups & ( 1 << i ) ) && inventory.powerupEndTime[i] > gameLocal.time ) {
+					switch( i ) {
+						//ff1.3 start
+						case HELLTIME: {
+							//NOTE: don't decrease stamina while possession Projectile is active
+							if ( !privateCameraView && nextStaminaDrop < gameLocal.time ) {
+								nextStaminaDrop = gameLocal.time + pm_staminaHelltimeRate.GetInteger();
+								staminaHelltime--;
+							}
+							if ( staminaHelltime <= 0 ) {
+								staminaHelltime = 0;
+								ClearPowerup( i );
+							}
+							break;
 						}
-						break;
-					}
-					default: {
-						break;
+						case INVULNERABILITY: {
+							//NOTE: don't decrease stamina while possession Projectile is active
+							if ( nextInvulnWarningTime > 0 && nextInvulnWarningTime < gameLocal.time ) {
+								nextInvulnWarningTime = 0;
+
+								const char* sound;
+								if ( spawnArgs.GetString( "snd_invuln_warn", "", &sound ) ) {
+									StartSoundShader( declManager->FindSound( sound ), SND_CHANNEL_PDA, 0, false, NULL );
+								}
+							}
+							break;
+						}
+						//ff1.3 end
+						case ENVIROSUIT: {
+							if ( enviroSuitLight.IsValid() ) {
+								idAngles lightAng = firstPersonViewAxis.ToAngles();
+								idVec3 lightOrg = firstPersonViewOrigin;
+								const idDict *lightDef = gameLocal.FindEntityDefDict( "envirosuit_light", false );
+
+								idVec3 enviroOffset = lightDef->GetVector( "enviro_offset" );
+								idVec3 enviroAngleOffset = lightDef->GetVector( "enviro_angle_offset" );
+
+								lightOrg += (enviroOffset.x * firstPersonViewAxis[0]);
+								lightOrg += (enviroOffset.y * firstPersonViewAxis[1]);
+								lightOrg += (enviroOffset.z * firstPersonViewAxis[2]);
+								lightAng.pitch += enviroAngleOffset.x;
+								lightAng.yaw += enviroAngleOffset.y;
+								lightAng.roll += enviroAngleOffset.z;
+
+								enviroSuitLight.GetEntity()->GetPhysics()->SetOrigin( lightOrg );
+								enviroSuitLight.GetEntity()->GetPhysics()->SetAxis( lightAng.ToMat3() );
+								enviroSuitLight.GetEntity()->UpdateVisuals();
+								enviroSuitLight.GetEntity()->Present();
+							}
+							break;
+						}
+						default: {
+							break;
+						}
 					}
 				}
-			}
+			} //ff1.3 end
 #endif
+			/* was:
 			if ( PowerUpActive( i ) && inventory.powerupEndTime[i] <= gameLocal.time ) {
 				ClearPowerup( i );
 			}
+			*/
 		}
 	}
 
@@ -3972,7 +5815,7 @@ void idPlayer::UpdatePowerUps( void ) {
 		int amt = ( healthPool > 5 ) ? 5 : healthPool;
 		health += amt;
 		if ( health > inventory.maxHealth ) {
-			health = inventory.maxHealth;
+			//health = inventory.maxHealth; //ff1.3 removed
 			healthPool = 0;
 		} else {
 			healthPool -= amt;
@@ -3980,7 +5823,7 @@ void idPlayer::UpdatePowerUps( void ) {
 		nextHealthPulse = gameLocal.time + HEALTHPULSE_TIME;
 		healthPulse = true;
 	}
-
+    /* //ff1.3 - don't take health
 	if ( !gameLocal.inCinematic && influenceActive == 0 && g_skill.GetInteger() == 3 && gameLocal.time > nextHealthTake && !AI_DEAD && health > g_healthTakeLimit.GetInteger() ) {
 		assert( !gameLocal.isClient );	// healthPool never be set on client
 
@@ -3997,6 +5840,7 @@ void idPlayer::UpdatePowerUps( void ) {
 		nextHealthTake = gameLocal.time + g_healthTakeTime.GetInteger() * 1000;
 		healthTake = true;
 	}
+	*/
 }
 
 /*
@@ -4040,6 +5884,7 @@ bool idPlayer::GiveInventoryItem( idDict *item ) {
 		info.name = itemName;
 	}
 	info.icon = item->GetString( "inv_icon" );
+	info.amount = 0;
 	inventory.pickupItemNames.Append( info );
 	if ( hud ) {
 		hud->SetStateString( "itemicon", info.icon );
@@ -4114,6 +5959,12 @@ void idPlayer::GiveObjective( const char *title, const char *text, const char *s
 	ShowObjective( "newObjective" );
 	if ( hud ) {
 		hud->HandleNamedEvent( "newObjective" );
+
+		/*
+		//ff1.3 - replace default obj with new obj
+		hud->SetStateString( "current_levelshot", screenshot );
+		hud->SetStateString( "current_leveltext", text );
+		*/
 	}
 }
 
@@ -4137,6 +5988,45 @@ void idPlayer::CompleteObjective( const char *title ) {
 	}
 }
 
+//ff1.3 start
+
+/*
+===============
+idPlayer::GiveGameCover
+===============
+*/
+void idPlayer::GiveGameCover( const char *coverDefName ) {
+	int i;
+
+	const idDeclEntityDef *coverDef = gameLocal.FindEntityDef( coverDefName, false );
+	if ( coverDefName == NULL || !coverDef ) {
+		return;
+	}
+
+	for ( i = inventory.gameCovers.Num() - 1; i >= 0; i-- ) {
+		if ( idStr::Icmp( coverDefName, inventory.gameCovers[i].defName ) == 0 ){
+			//inventory.gameCovers[i].amount++;
+			selectedGameCoverIndex = i;
+			//gameLocal.Printf("Amount: %d\n", inventory.gameCovers[i].amount);
+			break;
+		}
+	}
+	if ( i < 0 ) {
+		idGameCoverInfo gameCover;
+		gameCover.defName = coverDefName;
+		//gameCover.amount = 1;
+		selectedGameCoverIndex = inventory.gameCovers.Append( gameCover );
+	}
+
+	if ( hud ) {
+		//hud->SetStateString( "cover_name", coverDef->dict.GetString("name") );
+		hud->SetStateString( "cover_icon", coverDef->dict.GetString("mtr_cover") );
+		hud->HandleNamedEvent( "coverPickup" );
+	}
+	playerStats.gameCoversFound++;
+}
+//ff1.3 end
+
 /*
 ===============
 idPlayer::GiveVideo
@@ -4154,6 +6044,7 @@ void idPlayer::GiveVideo( const char *videoName, idDict *item ) {
 		idItemInfo info;
 		info.name = item->GetString( "inv_name" );
 		info.icon = item->GetString( "inv_icon" );
+		info.amount = 0; //ff1.3
 		inventory.pickupItemNames.Append( info );
 	}
 	if ( hud ) {
@@ -4209,7 +6100,7 @@ void idPlayer::GivePDA( const char *pdaName, idDict *item )
 	}
 
 	if ( pdaName == NULL || *pdaName == 0 ) {
-		pdaName = "personal";
+		pdaName = spawnArgs.GetString( "pda_name_personal", "ff_personal" ); //ff1.3 - was: "personal";
 	}
 
 	const idDeclPDA *pda = static_cast< const idDeclPDA* >( declManager->FindType( DECL_PDA, pdaName ) );
@@ -4243,7 +6134,6 @@ void idPlayer::GivePDA( const char *pdaName, idDict *item )
 				TogglePDA();
 			}
 			objectiveSystem->HandleNamedEvent( "showPDATip" );
-			//ShowTip( spawnArgs.GetString( "text_infoTitle" ), spawnArgs.GetString( "text_firstPDA" ), true );
 		}
 
 		if ( inventory.pdas.Num() > 1 && pda->GetNumVideos() > 0 && hud ) {
@@ -4364,11 +6254,120 @@ void idPlayer::Reload( void ) {
 	}
 }
 
+//ff1.3 start
+
+/*
+===============
+idPlayer::WeaponSpecialFunction
+
+Weapon special function- Added by Clone JC Denton
+===============
+*/
+void idPlayer::WeaponSpecialFunction( bool keyTapped ) {
+
+	/* 	old Denton code
+	if ( gameLocal.isClient ) {
+		return;
+	}
+
+	if ( spectating || gameLocal.inCinematic || influenceActive ) {
+		return;
+	}
+
+	if ( !hiddenWeapon && weapon.GetEntity() && weapon.GetEntity()->IsLinked() ) {
+		weapon.GetEntity()->BeginSpecialFunction( keyTapped );
+	}
+	*/
+
+	idMat3 axis;
+	idVec3 muzzle;
+
+	if ( privateCameraView ) {
+		return;
+	}
+
+	if ( !hiddenWeapon && weapon.GetEntity()->IsReady() ) {
+		if ( weapon.GetEntity()->AmmoInClip() || weapon.GetEntity()->AmmoAvailable() || weapon.GetEntity()->PwAmmoAvailable() ) { //ff1.1 - pw added
+			//AI_ATTACK_HELD = true;
+			//weapon.GetEntity()->BeginAttack();
+			weapon.GetEntity()->BeginSpecialFunction( keyTapped );
+		} else /*if ( keyTapped ) */ {
+			NextBestWeapon();
+		}
+	}
+
+}
+
+
+
 /*
 ===============
 idPlayer::NextBestWeapon
 ===============
 */
+void idPlayer::NextBestWeapon( void ) {
+	const char *weap;
+	int w;
+	bool ascendingPhase;
+
+	if ( gameLocal.isClient || !weaponEnabled ) {
+		return;
+	}
+
+	if ( currentWeapon != idealWeapon ) { //this in necessary because this method is invoked many times for a single weapon switch!
+		//gameLocal.Printf("next weapon already selected: abort NextBestWeapon\n");
+		return;
+	}
+
+	ascendingPhase = true;
+	w = idealWeapon;
+	//gameLocal.Printf("NextBestWeapon\n");
+
+	while ( w > 0 ) {
+		if ( ascendingPhase ) { //search next best weapon first
+			w++;
+			if ( w >= MAX_WEAPONS ) {
+				w = idealWeapon;
+				ascendingPhase = false;
+				continue;
+			}
+		} else { //then search previous best weapon
+			w--;
+			if ( w <= 0 ) {
+				//gameLocal.Warning("could not find valid weapon!");
+				w = weapon_fists;
+				break;
+			}
+		}
+
+		//gameLocal.Printf("Test weapon %d\n", w );
+
+		weap = spawnArgs.GetString( va( "def_weapon%d", w ) );
+#ifdef _D3XP
+		if ( !weap[ 0 ] || (( inventory.weapons & ( 1 << w ) ) == 0) ){ //ff1.1 not present
+			continue;
+		}
+
+		//if no pw && not enough ammo
+		if ( !inventory.HasPwAmmo(w) && ( !inventory.HasAmmo( weap, true, this ) || (inventory.HasEmptyClipCannotRefill(weap, this)) ) ) {  //ff1.1
+#else
+		if ( !weap[ 0 ] || ( ( inventory.weapons & ( 1 << w ) ) == 0 ) || ( !(inventory.HasAmmo( weap )) ) ) {
+#endif
+			continue;
+		}
+		if ( !spawnArgs.GetBool( va( "weapon%d_best", w ) ) ) {
+			continue;
+		}
+
+		//gameLocal.Printf("break on weapon %d\n", w );
+		break;
+	}
+	idealWeapon = w;
+	weaponSwitchTime = gameLocal.time + WEAPON_SWITCH_DELAY;
+	UpdateHudWeapon();
+}
+
+/* OLD D3 LOGIC
 void idPlayer::NextBestWeapon( void ) {
 	const char *weap;
 	int w = MAX_WEAPONS;
@@ -4381,7 +6380,12 @@ void idPlayer::NextBestWeapon( void ) {
 		w--;
 		weap = spawnArgs.GetString( va( "def_weapon%d", w ) );
 #ifdef _D3XP
-		if ( !weap[ 0 ] || ( ( inventory.weapons & ( 1 << w ) ) == 0 ) || ( !inventory.HasAmmo( weap, true, this ) ) ) {
+		if ( !weap[ 0 ] || (( inventory.weapons & ( 1 << w ) ) == 0) ){ //ff1.1 not present
+			continue;
+		}
+
+		//if no pw && not enough ammo
+		if ( !inventory.HasPwAmmo(w) && ( !inventory.HasAmmo( weap, true, this ) || (inventory.HasEmptyClipCannotRefill(weap, this)) ) ) {  //ff1.1
 #else
 		if ( !weap[ 0 ] || ( ( inventory.weapons & ( 1 << w ) ) == 0 ) || ( !(inventory.HasAmmo( weap )) ) ) {
 #endif
@@ -4390,15 +6394,15 @@ void idPlayer::NextBestWeapon( void ) {
 		if ( !spawnArgs.GetBool( va( "weapon%d_best", w ) ) ) {
 			continue;
 		}
-
-#ifdef _D3XP
-		//Some weapons will report having ammo but the clip is empty and
-		//will not have enough to fill the clip (i.e. Double Barrel Shotgun with 1 round left)
-		//We need to skip these weapons because they cannot be used
-		if(inventory.HasEmptyClipCannotRefill(weap, this)) {
-			continue;
-		}
-#endif
+// ff1.1 - this has been moved above
+//#ifdef _D3XP
+//		//Some weapons will report having ammo but the clip is empty and
+//		//will not have enough to fill the clip (i.e. Double Barrel Shotgun with 1 round left)
+//		//We need to skip these weapons because they cannot be used
+//		if (inventory.HasEmptyClipCannotRefill(weap, this)) {
+//			continue;
+//		}
+//#endif
 
 		break;
 	}
@@ -4406,6 +6410,8 @@ void idPlayer::NextBestWeapon( void ) {
 	weaponSwitchTime = gameLocal.time + WEAPON_SWITCH_DELAY;
 	UpdateHudWeapon();
 }
+
+//ff1.3 end
 
 /*
 ===============
@@ -4436,6 +6442,9 @@ void idPlayer::NextWeapon( void ) {
 		if ( w >= MAX_WEAPONS ) {
 			w = 0;
 		}
+        if( w == idealWeapon ){
+            return;
+        }
 		weap = spawnArgs.GetString( va( "def_weapon%d", w ) );
 		if ( !spawnArgs.GetBool( va( "weapon%d_cycle", w ) ) ) {
 			continue;
@@ -4448,7 +6457,7 @@ void idPlayer::NextWeapon( void ) {
 		}
 
 #ifdef _D3XP
-		if ( inventory.HasAmmo( weap, true, this ) || w == weapon_bloodstone ) {
+		if ( inventory.HasAmmo( weap, true, this ) || inventory.HasPwAmmo(w) ) { //ff1.1 was w == weapon_bloodstone
 #else
 		if ( inventory.HasAmmo( weap ) ) {
 #endif
@@ -4459,8 +6468,17 @@ void idPlayer::NextWeapon( void ) {
 	if ( ( w != currentWeapon ) && ( w != idealWeapon ) ) {
 		idealWeapon = w;
 		weaponSwitchTime = gameLocal.time + WEAPON_SWITCH_DELAY;
+		/* ff1.3 - was:
 		UpdateHudWeapon();
+		ShowWeaponOverview(); //ff1.3
+		*/
 	}
+	//ff1.3 start
+	UpdateHudWeapon();
+	if ( w != weapon_pda ) {
+		ShowWeaponOverview();
+	}
+	//ff1.3 end
 }
 
 /*
@@ -4492,6 +6510,9 @@ void idPlayer::PrevWeapon( void ) {
 		if ( w < 0 ) {
 			w = MAX_WEAPONS - 1;
 		}
+		if( w == idealWeapon ){
+			return;
+		}
 		weap = spawnArgs.GetString( va( "def_weapon%d", w ) );
 		if ( !spawnArgs.GetBool( va( "weapon%d_cycle", w ) ) ) {
 			continue;
@@ -4503,7 +6524,7 @@ void idPlayer::PrevWeapon( void ) {
 			continue;
 		}
 #ifdef _D3XP
-		if ( inventory.HasAmmo( weap, true, this ) || w == weapon_bloodstone ) {
+		if ( inventory.HasAmmo( weap, true, this ) || inventory.HasPwAmmo(w) ) { //ff1.1 was w == weapon_bloodstone
 #else
 		if ( inventory.HasAmmo( weap ) ) {
 #endif
@@ -4514,8 +6535,17 @@ void idPlayer::PrevWeapon( void ) {
 	if ( ( w != currentWeapon ) && ( w != idealWeapon ) ) {
 		idealWeapon = w;
 		weaponSwitchTime = gameLocal.time + WEAPON_SWITCH_DELAY;
+		/* ff1.3 - was:
 		UpdateHudWeapon();
+		ShowWeaponOverview(); //ff1.3
+		*/
 	}
+	//ff1.3 start
+	UpdateHudWeapon();
+	if ( w != weapon_pda ) {
+		ShowWeaponOverview();
+	}
+	//ff1.3 end
 }
 
 /*
@@ -4569,38 +6599,50 @@ void idPlayer::SelectWeapon( int num, bool force ) {
 				break;
 			}
 		}
-		if(currentIndex == -1) {
-			//Didn't find the current weapon so select the first item
-			weaponToggleIndex = 0;
+		/*
+		//ff1.3 start
+		if (currentIndex == -1 && weaponToggle->lastSelected != -1) {
+			//Didn't find the current weapon so select the last selected item in this group
+			num = weaponToggle->lastSelected;
+			gameLocal.Printf("weaponToggleIndex = weaponToggle->lastSelected\n");
 		} else {
-			//Roll to the next available item in the list
-			weaponToggleIndex = currentIndex;
-			weaponToggleIndex++;
-			if(weaponToggleIndex >= weaponToggle->toggleList.Num()) {
+		//ff1.3 end
+		*/
+			if(currentIndex == -1) {
+				//Didn't find the current weapon so select the first item
 				weaponToggleIndex = 0;
+			} else {
+				//Roll to the next available item in the list
+				weaponToggleIndex = currentIndex;
+				weaponToggleIndex++;
+				if(weaponToggleIndex >= weaponToggle->toggleList.Num()) {
+					weaponToggleIndex = 0;
+				}
 			}
-		}
 
-		for(int i = 0; i < weaponToggle->toggleList.Num(); i++) {
+			for(int i = 0; i < weaponToggle->toggleList.Num(); i++) {
 
-			//Is it available
-			if(inventory.weapons & ( 1 << weaponToggle->toggleList[weaponToggleIndex])) {
-				break;
+				//Is it available
+				if(inventory.weapons & ( 1 << weaponToggle->toggleList[weaponToggleIndex])) {
+					break;
+				}
+
+				weaponToggleIndex++;
+				if(weaponToggleIndex >= weaponToggle->toggleList.Num()) {
+					weaponToggleIndex = 0;
+				}
 			}
 
-			weaponToggleIndex++;
-			if(weaponToggleIndex >= weaponToggle->toggleList.Num()) {
-				weaponToggleIndex = 0;
-			}
-		}
-
-		num = weaponToggle->toggleList[weaponToggleIndex];
+			num = weaponToggle->toggleList[weaponToggleIndex];
+		//}//ff1.3
 	}
 #endif
 
 	if ( force || ( inventory.weapons & ( 1 << num ) ) ) {
 #ifdef _D3XP
-		if ( !inventory.HasAmmo( weap, true, this ) && !spawnArgs.GetBool( va( "weapon%d_allowempty", num ) ) ) {
+		if ( !inventory.HasAmmo( weap, true, this )
+			&& /*ff1.1*/ !inventory.HasPwAmmo(num)
+			&& !spawnArgs.GetBool( va( "weapon%d_allowempty", num ) ) ) {
 #else
 		if ( !inventory.HasAmmo( weap ) && !spawnArgs.GetBool( va( "weapon%d_allowempty", num ) ) ) {
 #endif
@@ -4609,12 +6651,19 @@ void idPlayer::SelectWeapon( int num, bool force ) {
 		if ( ( previousWeapon >= 0 ) && ( idealWeapon == num ) && ( spawnArgs.GetBool( va( "weapon%d_toggle", num ) ) ) ) {
 			weap = spawnArgs.GetString( va( "def_weapon%d", previousWeapon ) );
 #ifdef _D3XP
-			if ( !inventory.HasAmmo( weap, true, this ) && !spawnArgs.GetBool( va( "weapon%d_allowempty", previousWeapon ) ) ) {
+			if ( !inventory.HasAmmo( weap, true, this )
+				&& /*ff1.1*/ !inventory.HasPwAmmo(previousWeapon)
+				&& !spawnArgs.GetBool( va( "weapon%d_allowempty", previousWeapon ) ) ) {
 #else
 			if ( !inventory.HasAmmo( weap ) && !spawnArgs.GetBool( va( "weapon%d_allowempty", previousWeapon ) ) ) {
 #endif
 				return;
 			}
+			//ff1.3 start - previousWeapon may have been removed!
+			if ( !(inventory.weapons & ( 1 << previousWeapon )) ){
+				return;
+			}
+			//ff1.3 end
 			idealWeapon = previousWeapon;
 		} else if ( ( weapon_pda >= 0 ) && ( num == weapon_pda ) && ( inventory.pdas.Num() == 0 ) ) {
 			ShowTip( spawnArgs.GetString( "text_infoTitle" ), spawnArgs.GetString( "text_noPDA" ), true );
@@ -4624,6 +6673,17 @@ void idPlayer::SelectWeapon( int num, bool force ) {
 		}
 		UpdateHudWeapon();
 	}
+
+	//ff1.3 start
+	/*
+	if ( weaponToggle != NULL ) {
+		weaponToggle->lastSelected = num;
+	}
+	*/
+	if ( num != weapon_pda ) {
+		ShowWeaponOverview();
+	}
+	//ff1.3 end
 }
 
 /*
@@ -4771,6 +6831,10 @@ idUserInterface *idPlayer::ActiveGui( void ) {
 		return objectiveSystem;
 	}
 
+	if ( IsRiding() ) { //ff1.1 - disable guis
+		return NULL;
+	}
+
 	return focusUI;
 }
 
@@ -4795,11 +6859,21 @@ void idPlayer::Weapon_Combat( void ) {
 		AI_RELOAD = false;
 	}
 
+	//ff1.3 start
+	/*
 	if ( idealWeapon == weapon_soulcube && soulCubeProjectile.GetEntity() != NULL ) {
 		idealWeapon = currentWeapon;
 	}
+	*/
+	//ff1.3 end
 
 	if ( idealWeapon != currentWeapon ) {
+		//ff1.3 start
+		if ( idealWeapon != weapon_shockrifle && painKillerProjectile.GetEntity() != NULL ) {
+			 painKillerProjectile.GetEntity()->StartReturnPhase();
+		}
+		//ff1.3 end
+
 		if ( weaponCatchup ) {
 			assert( gameLocal.isClient );
 
@@ -4840,7 +6914,7 @@ void idPlayer::Weapon_Combat( void ) {
 	} else {
 		weaponGone = false;	// if you drop and re-get weap, you may miss the = false above
 		if ( weapon.GetEntity()->IsHolstered() ) {
-			if ( !weapon.GetEntity()->AmmoAvailable() ) {
+			if ( !weapon.GetEntity()->AmmoAvailable() && !weapon.GetEntity()->PwAmmoAvailable() ) { //ff1.1
 				// weapons can switch automatically if they have no more ammo
 				NextBestWeapon();
 			} else {
@@ -4855,17 +6929,28 @@ void idPlayer::Weapon_Combat( void ) {
 
 	// check for attack
 	AI_WEAPON_FIRED = false;
+
 	if ( !influenceActive ) {
 		if ( ( usercmd.buttons & BUTTON_ATTACK ) && !weaponGone ) {
-			FireWeapon();
+			FireWeapon( !(oldButtons & BUTTON_ATTACK) ); // The condition holds True when key is being tapped rather than held
 		} else if ( oldButtons & BUTTON_ATTACK ) {
 			AI_ATTACK_HELD = false;
 			weapon.GetEntity()->EndAttack();
 		}
+
+		//ff1.3 start
+		// check for Weapon special function, new
+		if ( ( usercmd.buttons & BUTTON_5 ) && !weaponGone ) {  // BUTTON_5 is being used for weapon special function
+			WeaponSpecialFunction( !(oldButtons & BUTTON_5) ); // The condition holds True when key is being tapped rather than held
+		} else if ( oldButtons & BUTTON_5 ) {
+			weapon.GetEntity()->EndSpecialFunction();
+		}
+		//ff1.3 end
 	}
 
 	// update our ammo clip in our inventory
 	if ( ( currentWeapon >= 0 ) && ( currentWeapon < MAX_WEAPONS ) ) {
+		//gameLocal.Printf( "inventory.clip[ %d ] = %d\n", currentWeapon, weapon.GetEntity()->AmmoInClip() ); //temp
 		inventory.clip[ currentWeapon ] = weapon.GetEntity()->AmmoInClip();
 		if ( hud && ( currentWeapon == idealWeapon ) ) {
 			UpdateHudAmmo( hud );
@@ -4890,6 +6975,64 @@ void idPlayer::Weapon_NPC( void ) {
 		focusCharacter->TalkTo( this );
 	}
 }
+
+//ff1.3 start
+
+/*
+===============
+idPlayer::Weapon_GameCover
+===============
+*/
+void idPlayer::Weapon_GameCover( void ) {
+	if ( idealWeapon != currentWeapon ) {
+		Weapon_Combat();
+	}
+	StopFiring();
+	weapon.GetEntity()->LowerWeapon();
+
+	if ( ( usercmd.buttons & BUTTON_ATTACK ) && !( oldButtons & BUTTON_ATTACK ) ) {
+		buttonMask |= BUTTON_ATTACK;
+		focusGameCover->GiveTo( this );
+	}
+}
+
+/*
+===============
+idPlayer::LanchPossessionProjectile
+===============
+
+idProjectile * idPlayer::LanchPossessionProjectile( idActor *targetEnt ){
+	idPossessionProjectile	*proj;
+	idEntity		*ent;
+	idDict			projectileDict;
+
+	gameLocal.Printf("idPlayer::LanchPossessionProjectile\n");
+
+	const idDeclEntityDef *projectileDef = gameLocal.FindEntityDef( "projectile_soulpossession", false );
+	if ( !projectileDef ) {
+		gameLocal.Warning( "No def 'projectile_soulpossession' found");
+		return NULL;
+	}
+
+	gameLocal.SpawnEntityDef( projectileDef->dict, &ent, false );
+
+	if ( !ent || !ent->IsType( idPossessionProjectile::Type ) ) {
+		gameLocal.Error( "'projectile_soulpossession' is not an idPossessionProjectile" );
+	}
+
+	StartSound( "snd_ride_fire", SND_CHANNEL_ANY, 0, false, NULL );
+
+	idVec3 pos = GetEyePosition();
+	idVec3 dir = viewAngles.ToForward();
+	proj = static_cast<idPossessionProjectile *>(ent);
+	proj->Create( this, pos, dir );
+	proj->SetEnemy( targetEnt );
+	proj->Launch( pos, dir, vec3_origin, 0.0f, 1.0f, 1.0f );
+	return proj;
+}
+*/
+
+//ff1.3 end
 
 /*
 ===============
@@ -5009,10 +7152,11 @@ void idPlayer::UpdateWeapon( void ) {
 		}
 	}
 
+	/* ivan - removed
 	if ( hiddenWeapon && tipUp && usercmd.buttons & BUTTON_ATTACK ) {
 		HideTip();
 	}
-
+    */
 	if ( g_dragEntity.GetBool() ) {
 		StopFiring();
 		weapon.GetEntity()->LowerWeapon();
@@ -5022,6 +7166,11 @@ void idPlayer::UpdateWeapon( void ) {
 		Weapon_GUI();
 	} else	if ( focusCharacter && ( focusCharacter->health > 0 ) ) {
 		Weapon_NPC();
+	} else if ( focusGameCover ) {
+		Weapon_GameCover();
+	} else if ( inGameStatsVisible ) {
+		StopFiring();
+		weapon.GetEntity()->LowerWeapon();
 	} else {
 		Weapon_Combat();
 	}
@@ -5140,19 +7289,46 @@ bool idPlayer::HandleSingleGuiCommand( idEntity *entityGui, idLexer *src ) {
 	}
 
 	if ( token.Icmp( "addhealth" ) == 0 ) {
-		if ( entityGui && health < 100 ) {
-			int _health = entityGui->spawnArgs.GetInt( "gui_parm1" );
-			int amt = ( _health >= HEALTH_PER_DOSE ) ? HEALTH_PER_DOSE : _health;
-			_health -= amt;
-			entityGui->spawnArgs.SetInt( "gui_parm1", _health );
-			if ( entityGui->GetRenderEntity() && entityGui->GetRenderEntity()->gui[ 0 ] ) {
-				entityGui->GetRenderEntity()->gui[ 0 ]->SetStateInt( "gui_parm1", _health );
-			}
-			health += amt;
-			if ( health > 100 ) {
-				health = 100;
+		//ff1.3 start
+		if ( entityGui && health < inventory.maxHealth ) {
+			int healthNeeded = inventory.maxHealth - health;
+			if ( healthNeeded > 0 ) {
+				int _health = entityGui->spawnArgs.GetInt( "gui_parm1" );
+				int amt = ( _health >= HEALTH_PER_DOSE ) ? HEALTH_PER_DOSE : _health;
+				if ( amt > healthNeeded ) {
+					amt = healthNeeded;
+				}
+				_health -= amt;
+				entityGui->spawnArgs.SetInt( "gui_parm1", _health );
+				if ( entityGui->GetRenderEntity() && entityGui->GetRenderEntity()->gui[ 0 ] ) {
+					entityGui->GetRenderEntity()->gui[ 0 ]->SetStateInt( "gui_parm1", _health );
+				}
+				health += amt;
+				if ( health > inventory.maxHealth ) {
+					health = inventory.maxHealth;
+				}
 			}
 		}
+
+		/* was:
+		if ( entityGui && health < 100 ) {
+			int healthNeeded = inventory.maxHealth - health;
+			if ( healthNeeded > 0 ) {
+				int _health = entityGui->spawnArgs.GetInt( "gui_parm1" );
+				int amt = ( _health >= HEALTH_PER_DOSE ) ? HEALTH_PER_DOSE : _health;
+				_health -= amt;
+				entityGui->spawnArgs.SetInt( "gui_parm1", _health );
+				if ( entityGui->GetRenderEntity() && entityGui->GetRenderEntity()->gui[ 0 ] ) {
+					entityGui->GetRenderEntity()->gui[ 0 ]->SetStateInt( "gui_parm1", _health );
+				}
+				health += amt;
+				if ( health > 100 ) {
+					health = 100;
+				}
+			}
+		}
+		*/
+		//ff1.3 end
 		return true;
 	}
 
@@ -5224,6 +7400,40 @@ bool idPlayer::HandleSingleGuiCommand( idEntity *entityGui, idLexer *src ) {
 		return true;
 	}
 
+	//ff1.3 start
+	if ( token.Icmp( "prevcover" ) == 0 ) {
+		if ( selectedGameCoverIndex > 0 ) {
+			selectedGameCoverIndex--;
+			UpdatePDAInfo( false );
+		}
+		return true;
+	}
+
+	if ( token.Icmp( "nextcover" ) == 0 ) {
+		if ( selectedGameCoverIndex < inventory.gameCovers.Num()-1 ) {
+			selectedGameCoverIndex++;
+			UpdatePDAInfo( false );
+		}
+		return true;
+	}
+
+	if ( token.Icmp( "prevstats" ) == 0 ) {
+		if ( selectedStatsIndex > 0 ) {
+			selectedStatsIndex--;
+			UpdatePDAInfo( false );
+		}
+		return true;
+	}
+
+	if ( token.Icmp( "nextstats" ) == 0 ) {
+		if ( selectedStatsIndex < CampaignStatsIndex() ) { //reserve 1 extra for campaign stats
+			selectedStatsIndex++;
+			UpdatePDAInfo( false );
+		}
+		return true;
+	}
+	//ff1.3 end
+
 	src->UnreadToken( &token );
 	return false;
 }
@@ -5275,6 +7485,51 @@ void idPlayer::UpdateLocation( void ) {
 	}
 }
 
+//ff1.3 start
+/*
+================
+idPlayer::GetAimTarget
+================
+*/
+idEntity *idPlayer::GetAimTarget( float range ) {
+	trace_t	trace;
+	idVec3 start, end;
+	idEntity *ent;
+	idEntity *master;
+
+	start = firstPersonViewOrigin;
+	end = start + firstPersonViewAxis[0] * range ;
+
+	idBounds bounds;
+	bounds.Zero();
+	bounds.ExpandSelf( 10.0f );
+
+	gameLocal.clip.TraceBounds( trace, start, end, bounds, MASK_SHOT_RENDERMODEL, this );
+
+	if ( trace.fraction < 1.0f ) {
+		ent = gameLocal.entities[ trace.c.entityNum ];
+		if ( ent && !ent->IsType( idAI::Type ) ) {
+			master = ent->GetBindMaster();
+			if ( master ) {
+				ent = master;
+			}
+		}
+	} else {
+		ent = NULL;
+	}
+
+	if ( g_debugWeapon.GetBool() ) {
+		gameRenderWorld->DebugLine( colorYellow, start, end, 100 );
+		if ( ent ) {
+			gameRenderWorld->DebugBounds( colorRed, ent->GetPhysics()->GetBounds(), ent->GetPhysics()->GetOrigin(), 100 );
+		}
+	}
+
+	return ent;
+}
+
+//ff1-3 end
+
 /*
 ================
 idPlayer::ClearFocus
@@ -5287,7 +7542,8 @@ void idPlayer::ClearFocus( void ) {
 	focusGUIent		= NULL;
 	focusUI			= NULL;
 	focusVehicle	= NULL;
-	talkCursor		= 0;
+	focusGameCover	= NULL; //ff1.3
+	talkCursor		= CURSTOR_STATE_HIDDEN;
 }
 
 /*
@@ -5307,6 +7563,7 @@ void idPlayer::UpdateFocus( void ) {
 	idUserInterface *oldUI;
 	idAI		*oldChar;
 	int			oldTalkCursor;
+	idGameCover *oldGameCover;
 	int			i, j;
 	idVec3		start, end;
 	bool		allowFocus;
@@ -5333,187 +7590,212 @@ void idPlayer::UpdateFocus( void ) {
 	oldUI			= focusUI;
 	oldChar			= focusCharacter;
 	oldTalkCursor	= talkCursor;
+    oldGameCover	= focusGameCover;
 
-	if ( focusTime <= gameLocal.time ) {
-		ClearFocus();
-	}
-
-	// don't let spectators interact with GUIs
-	if ( spectating ) {
-		return;
-	}
-
-	start = GetEyePosition();
-	end = start + viewAngles.ToForward() * 80.0f;
-
-	// player identification -> names to the hud
-	if ( gameLocal.isMultiplayer && entityNumber == gameLocal.localClientNum ) {
-		idVec3 end = start + viewAngles.ToForward() * 768.0f;
-		gameLocal.clip.TracePoint( trace, start, end, MASK_SHOT_BOUNDINGBOX, this );
-		int iclient = -1;
-		if ( ( trace.fraction < 1.0f ) && ( trace.c.entityNum < MAX_CLIENTS ) ) {
-			iclient = trace.c.entityNum;
-		}
-		if ( MPAim != iclient ) {
-			lastMPAim = MPAim;
-			MPAim = iclient;
-			lastMPAimTime = gameLocal.realClientTime;
-		}
-	}
-
-	idBounds bounds( start );
-	bounds.AddPoint( end );
-
-	listedClipModels = gameLocal.clip.ClipModelsTouchingBounds( bounds, -1, clipModelList, MAX_GENTITIES );
-
-	// no pretense at sorting here, just assume that there will only be one active
-	// gui within range along the trace
-	for ( i = 0; i < listedClipModels; i++ ) {
-		clip = clipModelList[ i ];
-		ent = clip->GetEntity();
-
-		if ( ent->IsHidden() ) {
-			continue;
-		}
-
-		if ( allowFocus ) {
-			if ( ent->IsType( idAFAttachment::Type ) ) {
-				idEntity *body = static_cast<idAFAttachment *>( ent )->GetBody();
-				if ( body && body->IsType( idAI::Type ) && ( static_cast<idAI *>( body )->GetTalkState() >= TALK_OK ) ) {
-					gameLocal.clip.TracePoint( trace, start, end, MASK_SHOT_RENDERMODEL, this );
-					if ( ( trace.fraction < 1.0f ) && ( trace.c.entityNum == ent->entityNumber ) ) {
-						ClearFocus();
-						focusCharacter = static_cast<idAI *>( body );
-						talkCursor = 1;
-						focusTime = gameLocal.time + FOCUS_TIME;
-						break;
-					}
-				}
-				continue;
-			}
-
-			if ( ent->IsType( idAI::Type ) ) {
-				if ( static_cast<idAI *>( ent )->GetTalkState() >= TALK_OK ) {
-					gameLocal.clip.TracePoint( trace, start, end, MASK_SHOT_RENDERMODEL, this );
-					if ( ( trace.fraction < 1.0f ) && ( trace.c.entityNum == ent->entityNumber ) ) {
-						ClearFocus();
-						focusCharacter = static_cast<idAI *>( ent );
-						talkCursor = 1;
-						focusTime = gameLocal.time + FOCUS_TIME;
-						break;
-					}
-				}
-				continue;
-			}
-
-			if ( ent->IsType( idAFEntity_Vehicle::Type ) ) {
-				gameLocal.clip.TracePoint( trace, start, end, MASK_SHOT_RENDERMODEL, this );
-				if ( ( trace.fraction < 1.0f ) && ( trace.c.entityNum == ent->entityNumber ) ) {
-					ClearFocus();
-					focusVehicle = static_cast<idAFEntity_Vehicle *>( ent );
-					focusTime = gameLocal.time + FOCUS_TIME;
-					break;
-				}
-				continue;
-			}
-		}
-
-		if ( !ent->GetRenderEntity() || !ent->GetRenderEntity()->gui[ 0 ] || !ent->GetRenderEntity()->gui[ 0 ]->IsInteractive() ) {
-			continue;
-		}
-
-		if ( ent->spawnArgs.GetBool( "inv_item" ) ) {
-			// don't allow guis on pickup items focus
-			continue;
-		}
-
-		pt = gameRenderWorld->GuiTrace( ent->GetModelDefHandle(), start, end );
-		if ( pt.x != -1 ) {
-			// we have a hit
-			renderEntity_t *focusGUIrenderEntity = ent->GetRenderEntity();
-			if ( !focusGUIrenderEntity ) {
-				continue;
-			}
-
-			if ( pt.guiId == 1 ) {
-				ui = focusGUIrenderEntity->gui[ 0 ];
-			} else if ( pt.guiId == 2 ) {
-				ui = focusGUIrenderEntity->gui[ 1 ];
-			} else {
-				ui = focusGUIrenderEntity->gui[ 2 ];
-			}
-
-			if ( ui == NULL ) {
-				continue;
-			}
-
+    if ( privateCameraView || IsRiding() ) { //ff1.3
+        ClearFocus(); //clear current focus entity
+    } else {
+		if ( focusTime <= gameLocal.time ) {
 			ClearFocus();
-			focusGUIent = ent;
-			focusUI = ui;
+		}
 
-			if ( oldFocus != ent ) {
-				// new activation
-				// going to see if we have anything in inventory a gui might be interested in
-				// need to enumerate inventory items
-				focusUI->SetStateInt( "inv_count", inventory.items.Num() );
-				for ( j = 0; j < inventory.items.Num(); j++ ) {
-					idDict *item = inventory.items[ j ];
-					const char *iname = item->GetString( "inv_name" );
-					const char *iicon = item->GetString( "inv_icon" );
-					const char *itext = item->GetString( "inv_text" );
+		// don't let spectators interact with GUIs
+		if ( spectating ) {
+			return;
+		}
 
-					focusUI->SetStateString( va( "inv_name_%i", j), iname );
-					focusUI->SetStateString( va( "inv_icon_%i", j), iicon );
-					focusUI->SetStateString( va( "inv_text_%i", j), itext );
-					kv = item->MatchPrefix("inv_id", NULL);
-					if ( kv ) {
-						focusUI->SetStateString( va( "inv_id_%i", j ), kv->GetValue() );
-					}
-					focusUI->SetStateInt( iname, 1 );
-				}
+		start = GetEyePosition();
+		end = start + viewAngles.ToForward() * 80.0f;
 
+		// player identification -> names to the hud
+		if ( gameLocal.isMultiplayer && entityNumber == gameLocal.localClientNum ) {
+			idVec3 end = start + viewAngles.ToForward() * 768.0f;
+			gameLocal.clip.TracePoint( trace, start, end, MASK_SHOT_BOUNDINGBOX, this );
+			int iclient = -1;
+			if ( ( trace.fraction < 1.0f ) && ( trace.c.entityNum < MAX_CLIENTS ) ) {
+				iclient = trace.c.entityNum;
+			}
+			if ( MPAim != iclient ) {
+				lastMPAim = MPAim;
+				MPAim = iclient;
+				lastMPAimTime = gameLocal.realClientTime;
+			}
+		}
 
-				for( j = 0; j < inventory.pdaSecurity.Num(); j++ ) {
-					const char *p = inventory.pdaSecurity[ j ];
-					if ( p && *p ) {
-						focusUI->SetStateInt( p, 1 );
-					}
-				}
+		idBounds bounds( start );
+		bounds.AddPoint( end );
 
-#ifdef _D3XP		//BSM: Added for powercells
-				int powerCellCount = 0;
-				for ( j = 0; j < inventory.items.Num(); j++ ) {
-					idDict *item = inventory.items[ j ];
-					if(item->GetInt("inv_powercell")) {
-						powerCellCount++;
-					}
-				}
-				focusUI->SetStateInt( "powercell_count", powerCellCount );
-#endif
+		listedClipModels = gameLocal.clip.ClipModelsTouchingBounds( bounds, -1, clipModelList, MAX_GENTITIES );
 
-				int staminapercentage = ( int )( 100.0f * stamina / pm_stamina.GetFloat() );
-				focusUI->SetStateString( "player_health", va("%i", health ) );
-				focusUI->SetStateString( "player_stamina", va( "%i%%", staminapercentage ) );
-				focusUI->SetStateString( "player_armor", va( "%i%%", inventory.armor ) );
+		// no pretense at sorting here, just assume that there will only be one active
+		// gui within range along the trace
+		for ( i = 0; i < listedClipModels; i++ ) {
+			clip = clipModelList[ i ];
+			ent = clip->GetEntity();
 
-				kv = focusGUIent->spawnArgs.MatchPrefix( "gui_parm", NULL );
-				while ( kv ) {
-					focusUI->SetStateString( kv->GetKey(), kv->GetValue() );
-					kv = focusGUIent->spawnArgs.MatchPrefix( "gui_parm", kv );
-				}
+			if ( ent->IsHidden() ) {
+				continue;
 			}
 
-			// clamp the mouse to the corner
-			ev = sys->GenerateMouseMoveEvent( -2000, -2000 );
-			command = focusUI->HandleEvent( &ev, gameLocal.time );
-			HandleGuiCommands( focusGUIent, command );
+			if ( allowFocus ) {
+				if ( ent->IsType( idAFAttachment::Type ) ) {
+					idEntity *body = static_cast<idAFAttachment *>( ent )->GetBody();
+					if ( body && body->IsType( idAI::Type ) && ( static_cast<idAI *>( body )->GetTalkState() >= TALK_OK ) ) {
+						gameLocal.clip.TracePoint( trace, start, end, MASK_SHOT_RENDERMODEL, this );
+						if ( ( trace.fraction < 1.0f ) && ( trace.c.entityNum == ent->entityNumber ) ) {
+							ClearFocus();
+							focusCharacter = static_cast<idAI *>( body );
+							talkCursor = CURSTOR_STATE_TALK;
+							focusTime = gameLocal.time + FOCUS_TIME;
+							break;
+						}
+					}
+					continue;
+				}
 
-			// move to an absolute position
-			ev = sys->GenerateMouseMoveEvent( pt.x * SCREEN_WIDTH, pt.y * SCREEN_HEIGHT );
-			command = focusUI->HandleEvent( &ev, gameLocal.time );
-			HandleGuiCommands( focusGUIent, command );
-			focusTime = gameLocal.time + FOCUS_GUI_TIME;
-			break;
+				if ( ent->IsType( idAI::Type ) ) {
+					if ( static_cast<idAI *>( ent )->GetTalkState() >= TALK_OK ) {
+						gameLocal.clip.TracePoint( trace, start, end, MASK_SHOT_RENDERMODEL, this );
+						if ( ( trace.fraction < 1.0f ) && ( trace.c.entityNum == ent->entityNumber ) ) {
+							ClearFocus();
+							focusCharacter = static_cast<idAI *>( ent );
+							talkCursor = CURSTOR_STATE_TALK;
+							focusTime = gameLocal.time + FOCUS_TIME;
+							break;
+						}
+					}
+					continue;
+				}
+
+				if ( ent->IsType( idAFEntity_Vehicle::Type ) ) {
+					//ff1.3 start
+					//gameLocal.clip.TracePoint( trace, start, end, MASK_SHOT_RENDERMODEL, this );
+					idBounds bounds;
+					bounds.Zero();
+					bounds.ExpandSelf( 20.0f );
+					gameLocal.clip.TraceBounds( trace, start, end, bounds, MASK_SHOT_RENDERMODEL, this );
+					//ff1.3 end
+					if ( ( trace.fraction < 0.2f /*1.0f*/ ) && ( trace.c.entityNum == ent->entityNumber ) ) {
+						ClearFocus();
+						focusVehicle = static_cast<idAFEntity_Vehicle *>( ent );
+						focusTime = gameLocal.time + FOCUS_TIME;
+						break;
+					}
+					continue;
+				}
+
+				//ff1.3 start
+				if ( ent->IsType( idGameCover::Type ) ) {
+					gameLocal.clip.TracePoint( trace, start, end, MASK_SHOT_RENDERMODEL, this );
+					if ( ( trace.fraction < 1.0f ) && ( trace.c.entityNum == ent->entityNumber ) ) {
+						ClearFocus();
+						focusGameCover = static_cast<idGameCover *>( ent );
+						talkCursor = CURSTOR_STATE_TALK;
+						focusTime = gameLocal.time + FOCUS_TIME;
+						break;
+					}
+					continue;
+				}
+				//ff1.3 end
+			}
+
+			if ( !ent->GetRenderEntity() || !ent->GetRenderEntity()->gui[ 0 ] || !ent->GetRenderEntity()->gui[ 0 ]->IsInteractive() ) {
+				continue;
+			}
+
+			if ( ent->spawnArgs.GetBool( "inv_item" ) ) {
+				// don't allow guis on pickup items focus
+				continue;
+			}
+
+			pt = gameRenderWorld->GuiTrace( ent->GetModelDefHandle(), start, end );
+			if ( pt.x != -1 ) {
+				// we have a hit
+				renderEntity_t *focusGUIrenderEntity = ent->GetRenderEntity();
+				if ( !focusGUIrenderEntity ) {
+					continue;
+				}
+
+				if ( pt.guiId == 1 ) {
+					ui = focusGUIrenderEntity->gui[ 0 ];
+				} else if ( pt.guiId == 2 ) {
+					ui = focusGUIrenderEntity->gui[ 1 ];
+				} else {
+					ui = focusGUIrenderEntity->gui[ 2 ];
+				}
+
+				if ( ui == NULL ) {
+					continue;
+				}
+
+				ClearFocus();
+				focusGUIent = ent;
+				focusUI = ui;
+
+				if ( oldFocus != ent ) {
+					// new activation
+					// going to see if we have anything in inventory a gui might be interested in
+					// need to enumerate inventory items
+					focusUI->SetStateInt( "inv_count", inventory.items.Num() );
+					for ( j = 0; j < inventory.items.Num(); j++ ) {
+						idDict *item = inventory.items[ j ];
+						const char *iname = item->GetString( "inv_name" );
+						const char *iicon = item->GetString( "inv_icon" );
+						const char *itext = item->GetString( "inv_text" );
+
+						focusUI->SetStateString( va( "inv_name_%i", j), iname );
+						focusUI->SetStateString( va( "inv_icon_%i", j), iicon );
+						focusUI->SetStateString( va( "inv_text_%i", j), itext );
+						kv = item->MatchPrefix("inv_id", NULL);
+						if ( kv ) {
+							focusUI->SetStateString( va( "inv_id_%i", j ), kv->GetValue() );
+						}
+						focusUI->SetStateInt( iname, 1 );
+					}
+
+
+					for( j = 0; j < inventory.pdaSecurity.Num(); j++ ) {
+						const char *p = inventory.pdaSecurity[ j ];
+						if ( p && *p ) {
+							focusUI->SetStateInt( p, 1 );
+						}
+					}
+
+	#ifdef _D3XP		//BSM: Added for powercells
+					int powerCellCount = 0;
+					for ( j = 0; j < inventory.items.Num(); j++ ) {
+						idDict *item = inventory.items[ j ];
+						if (item->GetInt("inv_powercell")) {
+							powerCellCount++;
+						}
+					}
+					focusUI->SetStateInt( "powercell_count", powerCellCount );
+	#endif
+
+					//int staminapercentage = ( int )( 100.0f * stamina / pm_stamina.GetFloat() );
+					focusUI->SetStateString( "player_health", va("%i", health ) );
+					//focusUI->SetStateString( "player_stamina", va( "%i%%", staminapercentage ) );
+					focusUI->SetStateString( "player_armor", va( "%i%%", inventory.armor ) );
+
+					kv = focusGUIent->spawnArgs.MatchPrefix( "gui_parm", NULL );
+					while ( kv ) {
+						focusUI->SetStateString( kv->GetKey(), kv->GetValue() );
+						kv = focusGUIent->spawnArgs.MatchPrefix( "gui_parm", kv );
+					}
+				}
+
+				// clamp the mouse to the corner
+				ev = sys->GenerateMouseMoveEvent( -2000, -2000 );
+				command = focusUI->HandleEvent( &ev, gameLocal.time );
+ 				HandleGuiCommands( focusGUIent, command );
+
+				// move to an absolute position
+				ev = sys->GenerateMouseMoveEvent( pt.x * SCREEN_WIDTH, pt.y * SCREEN_HEIGHT );
+				command = focusUI->HandleEvent( &ev, gameLocal.time );
+				HandleGuiCommands( focusGUIent, command );
+				focusTime = gameLocal.time + FOCUS_GUI_TIME;
+				break;
+			}
 		}
 	}
 
@@ -5537,11 +7819,16 @@ void idPlayer::UpdateFocus( void ) {
 
 	if ( oldChar != focusCharacter && hud ) {
 		if ( focusCharacter ) {
-			hud->SetStateString( "npc", focusCharacter->spawnArgs.GetString( "npc_name", "Joe" ) );
+			if ( focusCharacter->spawnArgs.GetBool( "showStatus", "0" ) ) { //ff1.1 - friends
+				hud->SetStateString( "npc", "Status:" );
+				hud->SetStateString( "npc_action", focusCharacter->spawnArgs.GetString( "shownState", "Inactive" ) );
+			} else {
+				hud->SetStateString( "npc", focusCharacter->spawnArgs.GetString( "npc_name", "Joe" ) );
 #ifdef _D3XP
-			//Use to code to update the npc action string to fix bug 1159
-			hud->SetStateString( "npc_action", common->GetLanguageDict()->GetString( "#str_02036" ));
+				//Use to code to update the npc action string to fix bug 1159
+				hud->SetStateString( "npc_action", common->GetLanguageDict()->GetString( "#str_02036" ) );
 #endif
+			}
 			hud->HandleNamedEvent( "showNPC" );
 			// HideTip();
 			// HideObjective();
@@ -5553,7 +7840,26 @@ void idPlayer::UpdateFocus( void ) {
 			hud->HandleNamedEvent( "hideNPC" );
 		}
 	}
+	//ff1.3 start
+	else if ( oldGameCover != focusGameCover && hud ) {
+		if ( focusGameCover ) {
+			const idDict * cover = gameLocal.FindEntityDefDict( focusGameCover->spawnArgs.GetString( "def_cover" ), false );
+			if ( cover ) {
+				hud->SetStateString( "npc", cover->GetString("name") );
+			} else {
+				hud->SetStateString( "npc", "" );
+			}
+			hud->SetStateString( "npc_action", "Collect" );
+			hud->HandleNamedEvent( "showNPC" );
+		} else {
+			hud->SetStateString( "npc", "" );
+			hud->SetStateString( "npc_action", "" );
+			hud->HandleNamedEvent( "hideNPC" );
+		}
+	}
+	//ff1.3 end
 }
+
 
 /*
 =================
@@ -5873,7 +8179,13 @@ void idPlayer::UpdateViewAngles( void ) {
 		cmdAngles[i] = SHORT2ANGLE( usercmd.angles[i] );
 		if ( influenceActive == INFLUENCE_LEVEL3 ) {
 			viewAngles[i] += idMath::ClampFloat( -1.0f, 1.0f, idMath::AngleDelta( idMath::AngleNormalize180( SHORT2ANGLE( usercmd.angles[i]) + deltaViewAngles[i] ) , viewAngles[i] ) );
-		} else {
+		}
+		//ff1.3 start - apply only a percentage of the movement inversely proportional to the zoom percentage
+		else if ( advancedWeaponZoomTime && weapon.GetEntity() ) {
+			viewAngles[i] += (1.0f - pm_zoomSensitReduction.GetFloat() * (weapon.GetEntity()->GetZoomFov() / CalcFov(true)) )*idMath::AngleDelta( idMath::AngleNormalize180( SHORT2ANGLE( usercmd.angles[i]) + deltaViewAngles[i] ) , viewAngles[i] );
+		}
+		//ff1.3 end
+		else {
 			viewAngles[i] = idMath::AngleNormalize180( SHORT2ANGLE( usercmd.angles[i]) + deltaViewAngles[i] );
 		}
 	}
@@ -5976,8 +8288,13 @@ idPlayer::GetBaseHeartRate
 ==============
 */
 int idPlayer::GetBaseHeartRate( void ) {
+	//ff1.3 start - disable stamina
+	/* was:
 	int base = idMath::FtoiFast( ( BASE_HEARTRATE + LOWHEALTH_HEARTRATE_ADJ ) - ( (float)health / 100.0f ) * LOWHEALTH_HEARTRATE_ADJ );
 	int rate = idMath::FtoiFast( base + ( ZEROSTAMINA_HEARTRATE - base ) * ( 1.0f - stamina / pm_stamina.GetFloat() ) );
+	*/
+	int rate = idMath::FtoiFast( ( BASE_HEARTRATE + LOWHEALTH_HEARTRATE_ADJ ) - ( (float)health / 100.0f ) * LOWHEALTH_HEARTRATE_ADJ );
+	//ff1.3 end
 	int diff = ( lastDmgTime ) ? gameLocal.time - lastDmgTime : 99999;
 	rate += ( diff < 5000 ) ? ( diff < 2500 ) ? ( diff < 1000 ) ? 15 : 10 : 5 : 0;
 	return rate;
@@ -5993,7 +8310,7 @@ void idPlayer::SetCurrentHeartRate( void ) {
 	int base = idMath::FtoiFast( ( BASE_HEARTRATE + LOWHEALTH_HEARTRATE_ADJ ) - ( (float) health / 100.0f ) * LOWHEALTH_HEARTRATE_ADJ );
 
 	if ( PowerUpActive( ADRENALINE )) {
-		heartRate = 135;
+		heartRate = 115; //ff1.3 - was: 135
 	} else {
 		heartRate = idMath::FtoiFast( heartInfo.GetCurrentValue( gameLocal.time ) );
 		int currentRate = GetBaseHeartRate();
@@ -6036,12 +8353,13 @@ void idPlayer::SetCurrentHeartRate( void ) {
 	}
 }
 
+//ff1.3 start
 /*
 ==============
 idPlayer::UpdateAir
 ==============
-*/
-void idPlayer::UpdateAir( void ) {
+
+void idPlayer::UpdateAir( void ) { //removed
 	if ( health <= 0 ) {
 		return;
 	}
@@ -6113,15 +8431,15 @@ void idPlayer::UpdateAir( void ) {
 	}
 }
 
-void idPlayer::UpdatePowerupHud() {
+void idPlayer::UpdatePowerupHud() { //removed
 
 	if ( health <= 0 ) {
 		return;
 	}
 
-	if(lastHudPowerup != hudPowerup) {
+	if (lastHudPowerup != hudPowerup) {
 
-		if(hudPowerup == -1) {
+		if (hudPowerup == -1) {
 			//The powerup hud should be turned off
 			if ( hud ) {
 				hud->HandleNamedEvent( "noPowerup" );
@@ -6136,8 +8454,8 @@ void idPlayer::UpdatePowerupHud() {
 		lastHudPowerup = hudPowerup;
 	}
 
-	if(hudPowerup != -1) {
-		if(PowerUpActive(hudPowerup)) {
+	if (hudPowerup != -1) {
+		if (PowerUpActive(hudPowerup)) {
 			int remaining = inventory.powerupEndTime[ hudPowerup ] - gameLocal.time;
 			int filledbar = idMath::ClampInt( 0, hudPowerupDuration, remaining );
 
@@ -6148,6 +8466,32 @@ void idPlayer::UpdatePowerupHud() {
 		}
 	}
 }
+*/
+
+int idPlayer::ComputePowerupHudPct( int powerup, int maxHudDuration ) {
+	int remaining = inventory.powerupEndTime[ powerup ] - gameLocal.slow.time;
+	int filledbar = idMath::ClampInt( 0, maxHudDuration, remaining );
+	return 100 * filledbar / maxHudDuration;
+}
+
+void idPlayer::UpdatePowerupHud() {
+	if ( health <= 0 || !hud ) {
+		return;
+	}
+
+	if ( PowerUpActive( INVULNERABILITY ) ) {
+		hud->SetStateInt( "powerup_invuln_pct", ComputePowerupHudPct( INVULNERABILITY, 30000 ) );
+	} else {
+		hud->SetStateInt( "powerup_invuln_pct", 0 );
+	}
+
+	if ( PowerUpActive( ADRENALINE ) ) {
+		hud->SetStateInt( "powerup_speed_pct", ComputePowerupHudPct( ADRENALINE, 45000 ) );
+	} else {
+		hud->SetStateInt( "powerup_speed_pct", 0 );
+	}
+}
+//ff1.3 end
 
 /*
 ==============
@@ -6294,7 +8638,7 @@ void idPlayer::UpdatePDAInfo( bool updatePDASel ) {
 			objectiveSystem->SetStateString( va( "listPDA_item_%i", index), va(S_COLOR_GRAY "%s", pda->GetPdaName()) );
 		} else {
 			// This pda has not been read yet
-		objectiveSystem->SetStateString( va( "listPDA_item_%i", index), pda->GetPdaName() );
+			objectiveSystem->SetStateString( va( "listPDA_item_%i", index), pda->GetPdaName() );
 		}
 
 		const char *security = pda->GetSecurity();
@@ -6315,13 +8659,14 @@ void idPlayer::UpdatePDAInfo( bool updatePDASel ) {
 				// Selected, personal pda
 				// Add videos
 				if ( updatePDASel || !inventory.pdaOpened ) {
-				objectiveSystem->HandleNamedEvent( "playerPDAActive" );
-				objectiveSystem->SetStateString( "pda_personal", "1" );
+					objectiveSystem->HandleNamedEvent( "playerPDAActive" );
+					objectiveSystem->SetStateString( "pda_personal", "1" );
 					inventory.pdaOpened = true;
 				}
 				objectiveSystem->SetStateString( "pda_location", hud->State().GetString("location") );
 				objectiveSystem->SetStateString( "pda_name", cvarSystem->GetCVarString( "ui_name") );
-				AddGuiPDAData( DECL_VIDEO, "listPDAVideo", pda, objectiveSystem );
+				int videoCount = AddGuiPDAData( DECL_VIDEO, "listPDAVideo", pda, objectiveSystem );
+				objectiveSystem->SetStateInt( "videoCount", videoCount ); //ff1.3
 				sel = objectiveSystem->State().GetInt( "listPDAVideo_sel_0", "0" );
 				const idDeclVideo *vid = NULL;
 				if ( sel >= 0 && sel < inventory.videos.Num() ) {
@@ -6336,8 +8681,8 @@ void idPlayer::UpdatePDAInfo( bool updatePDASel ) {
 					objectiveSystem->SetStateString( "PDAVideoInfo", vid->GetInfo() );
 				} else {
 					//FIXME: need to precache these in the player def
-					objectiveSystem->SetStateString( "PDAVideoVid", "sound/vo/video/welcome.tga" );
-					objectiveSystem->SetStateString( "PDAVideoIcon", "sound/vo/video/welcome.tga" );
+					objectiveSystem->SetStateString( "PDAVideoVid", "" ); //sound/vo/video/welcome.tga
+					objectiveSystem->SetStateString( "PDAVideoIcon", "" ); //sound/vo/video/welcome.tga
 					objectiveSystem->SetStateString( "PDAVideoTitle", "" );
 					objectiveSystem->SetStateString( "PDAVideoInfo", "" );
 				}
@@ -6345,8 +8690,8 @@ void idPlayer::UpdatePDAInfo( bool updatePDASel ) {
 				// Selected, non-personal pda
 				// Add audio logs
 				if ( updatePDASel ) {
-				objectiveSystem->HandleNamedEvent( "playerPDANotActive" );
-				objectiveSystem->SetStateString( "pda_personal", "0" );
+					objectiveSystem->HandleNamedEvent( "playerPDANotActive" );
+					objectiveSystem->SetStateString( "pda_personal", "0" );
 					inventory.pdaOpened = true;
 				}
 				objectiveSystem->SetStateString( "pda_location", pda->GetPost() );
@@ -6382,6 +8727,7 @@ void idPlayer::UpdatePDAInfo( bool updatePDASel ) {
 					data = email->GetBody();
 				}
 			}
+			objectiveSystem->SetStateInt( "emailCount", numEmails ); //ff1.3
 			objectiveSystem->SetStateString( "PDAEmailTitle", name );
 			objectiveSystem->SetStateString( "PDAEmailText", data );
 		}
@@ -6389,6 +8735,30 @@ void idPlayer::UpdatePDAInfo( bool updatePDASel ) {
 	if ( objectiveSystem->State().GetInt( "listPDA_sel_0", "-1" ) == -1 ) {
 		objectiveSystem->SetStateInt( "listPDA_sel_0", 0 );
 	}
+
+	//ff1.3 start
+	objectiveSystem->SetStateInt( "coverCount", inventory.gameCovers.Num() );
+	for ( j = -2; j <= 2; j++ ) {
+		sel = selectedGameCoverIndex + j;
+		if ( sel >= 0 && sel < inventory.gameCovers.Num() ) {
+			const idDict * cover = gameLocal.FindEntityDefDict( inventory.gameCovers[sel].defName, false );
+			if ( cover ) {
+				objectiveSystem->SetStateString( va( "cover_name_%i", j+2), cover->GetString("name") );
+				objectiveSystem->SetStateString( va( "cover_icon_%i", j+2), cover->GetString("mtr_cover") );
+				objectiveSystem->SetStateInt( va( "cover_amount_%i", j+2), 1 );
+				//objectiveSystem->SetStateInt( va( "cover_amount_%i", j+2), inventory.gameCovers[sel].amount );
+				continue;
+			}
+		}
+
+		objectiveSystem->SetStateString( va( "cover_name_%i", j+2), "" );
+		objectiveSystem->SetStateString( va( "cover_icon_%i", j+2), "" );
+		objectiveSystem->SetStateInt( va( "cover_amount_%i", j+2), 0 );
+	}
+
+	UpdatePDAStats( objectiveSystem );
+	//ff1.3 end
+
 	objectiveSystem->StateChanged( gameLocal.time );
 }
 
@@ -6551,32 +8921,150 @@ void idPlayer::SetClipModel( void ) {
 	}
 }
 
+//ivan start
+
 /*
 ==============
-idPlayer::UseVehicle
+idPlayer::UseUseThirdPersonCamera
 ==============
 */
-void idPlayer::UseVehicle( void ) {
-	trace_t	trace;
-	idVec3 start, end;
-	idEntity *ent;
+bool idPlayer::UseThirdPersonCamera( void ) {
+	return pm_thirdPerson.GetBool() || IsRiding();
+}
 
-	if ( GetBindMaster() && GetBindMaster()->IsType( idAFEntity_Vehicle::Type ) ) {
+/*
+==============
+idPlayer::SetupForRiding
+==============
+*/
+void idPlayer::CommonRidingSetup( idEntity *riddenEnt ){
+	physicsObj.DisableClip();
+	weaponEnabledOnRideExit = weaponEnabled;
+	weaponEnabled = false;
+	if ( !gameLocal.inCinematic ) {
+		Hide();
+		if ( weapon.GetEntity() ) {
+			weapon.GetEntity()->EnterCinematic();
+		}
+	}
+	if ( PowerUpActive( HELLTIME ) ) {
+		ClearPowerup( HELLTIME );
+	}
+	if ( painKillerProjectile.GetEntity() != NULL ) {
+		painKillerProjectile.GetEntity()->StartReturnPhase();
+	}
+}
+
+/*
+==============
+idPlayer::SetupForRiding
+==============
+*/
+void idPlayer::CommonRidingCleanUp( bool killed ){
+	currentVehicle = NULL;
+	currentRiddenAI = NULL;
+	if ( !gameLocal.inCinematic ) {
 		Show();
-		static_cast<idAFEntity_Vehicle*>(GetBindMaster())->Use( this );
-	} else {
-		start = GetEyePosition();
-		end = start + viewAngles.ToForward() * 80.0f;
-		gameLocal.clip.TracePoint( trace, start, end, MASK_SHOT_RENDERMODEL, this );
-		if ( trace.fraction < 1.0f ) {
-			ent = gameLocal.entities[ trace.c.entityNum ];
-			if ( ent && ent->IsType( idAFEntity_Vehicle::Type ) ) {
-				Hide();
-				static_cast<idAFEntity_Vehicle*>(ent)->Use( this );
-			}
+	}
+	physicsObj.EnableClip();
+	if ( !killed ) {
+		weaponEnabled = weaponEnabledOnRideExit;
+		if ( weaponEnabled && weapon.GetEntity() && !gameLocal.inCinematic ) {
+			weapon.GetEntity()->ExitCinematic();
+		}
+
+		//restore player hud
+		if ( hud ) {
+			UpdateEveryAmmoOnHud(); //make sure ammo are up to date, especially possession pw
+			hud->HandleNamedEvent( "stop_riding" );
+		}
+		if ( cursor ) {
+			cursor->HandleNamedEvent( "enableDefaultCursor" );
 		}
 	}
 }
+
+/*
+==============
+idPlayer::CanEnterAI
+==============
+*/
+bool idPlayer::CanEnterAI( void ){
+	return ( !IsRiding() && health > 0 && !IsBound() );
+}
+
+/*
+==============
+idPlayer::EnterAI
+called by idAI_Rideable
+==============
+*/
+void idPlayer::EnterAI( idAI_Rideable* aiEnt ){
+	currentRiddenAI = aiEnt;
+	CommonRidingSetup( aiEnt );
+	aiEnt->InitHudStats( hud, cursor );
+	aiEnt->UpdateHudStats( hud );
+
+	//clear player enemies
+	idActor *ent;
+	int num = 0;
+	for( ent = enemyList.Next(); ent != NULL; ent = ent->enemyNode.Next() ) {
+		if ( ent->IsType( idAI::Type ) ) {
+			static_cast<idAI*>(ent)->PostEventMS( &AI_ClearEnemy, 0 );
+		}
+	}
+
+	//fadein
+	playerView.Fade( vec4_zero, SEC2MS( 1.0f ) );
+}
+
+/*
+==============
+idPlayer::ExitAI
+called by idAI_Rideable
+==============
+*/
+void idPlayer::ExitAI( bool killed ){
+	if ( currentRiddenAI ) {
+		if ( killed && hud ) { //update the health one last time to see the negative value
+			currentRiddenAI->UpdateHudStats( hud );
+		}
+		//currentRiddenAI->UnbindDriver();
+		CommonRidingCleanUp( killed );
+
+		//fadein
+		playerView.Fade( vec4_zero, SEC2MS( 1.0f ) );
+	}
+}
+
+/*
+==============
+idPlayer::EnterVehicle
+==============
+*/
+void idPlayer::EnterVehicle( idAFEntity_Vehicle *vehicle ){
+	if ( !IsRiding() && vehicle && vehicle->StartDriving( this ) ) {
+		currentVehicle = vehicle;
+		CommonRidingSetup( vehicle );
+		vehicle->InitHudStats( hud, cursor );
+		vehicle->UpdateHudStats( hud );
+	}
+}
+
+/*
+==============
+idPlayer::ExitVehicle
+==============
+*/
+void idPlayer::ExitVehicle( void ){
+	if ( currentVehicle ) {
+		currentVehicle->StopDriving();
+		CommonRidingCleanUp(false);
+		nextVehicleTime = gameLocal.time + VEHICLE_ENTER_DELAY;
+	}
+}
+
+//ivan end
 
 /*
 ==============
@@ -6596,8 +9084,26 @@ void idPlayer::PerformImpulse( int impulse ) {
 		ClientSendEvent( EVENT_IMPULSE, &msg );
 	}
 
+	//ff1.3 start
+	/*
+	if ( currentVehicle ) {
+		currentVehicle->PerformImpulse( impulse ); //TODO
+		//return;
+	}
+	*/
+	if ( currentRiddenAI && currentRiddenAI->PerformImpulse( impulse ) ) {
+		return;
+	}
+	//ff1.3 end
+
 	if ( impulse >= IMPULSE_0 && impulse <= IMPULSE_12 ) {
 		SelectWeapon( impulse, false );
+		return;
+	}
+
+	//ff impulse walkaround
+	if ( impulse >= IMPULSE_23 && impulse <= IMPULSE_28 ) {
+		SelectWeapon( impulse - 10, false );
 		return;
 	}
 
@@ -6614,6 +9120,9 @@ void idPlayer::PerformImpulse( int impulse ) {
 			PrevWeapon();
 			break;
 		}
+		//ff start
+		//case IMPULSE_16: { } //was ZOOM in ff1.2
+		//ff end
 		case IMPULSE_17: {
 			if ( gameLocal.isClient || entityNumber == gameLocal.localClientNum ) {
 				gameLocal.mpGame.ToggleReady();
@@ -6628,11 +9137,11 @@ void idPlayer::PerformImpulse( int impulse ) {
 			// when we're not in single player, IMPULSE_19 is used for showScores
 			// otherwise it opens the pda
 			if ( !gameLocal.isMultiplayer ) {
-				if ( objectiveSystemOpen ) {
+				//ff start
+				if ( objectiveSystemOpen || (!spectating && !gameLocal.inCinematic && !privateCameraView && health > 0) ) {
 					TogglePDA();
-				} else if ( weapon_pda >= 0 ) {
-					SelectWeapon( weapon_pda, true );
 				}
+				//ff end
 			}
 			break;
 		}
@@ -6642,6 +9151,17 @@ void idPlayer::PerformImpulse( int impulse ) {
 			}
 			break;
 		}
+		//ff start
+		case IMPULSE_21: {
+			if ( PowerUpActive( HELLTIME ) ){
+				ClearPowerup( HELLTIME );
+			} else if ( !gameLocal.inCinematic && !privateCameraView ){
+				GivePowerUp( HELLTIME, 3600 * 1000 ); //1h
+			}
+			break;
+		}
+		//ff end
+
 		case IMPULSE_22: {
 			if ( gameLocal.isClient || entityNumber == gameLocal.localClientNum ) {
 				gameLocal.mpGame.ToggleSpectate();
@@ -6649,6 +9169,7 @@ void idPlayer::PerformImpulse( int impulse ) {
 			break;
 		}
 
+		/* ff: now it's used for weapon selelection
 		case IMPULSE_25: {
 			if ( gameLocal.isServer && gameLocal.mpGame.IsGametypeFlagBased() && (gameLocal.serverInfo.GetInt( "si_midnight" ) == 2) ) {
 				if ( enviroSuitLight.IsValid() ) {
@@ -6685,9 +9206,10 @@ void idPlayer::PerformImpulse( int impulse ) {
 				}
 			}
 			break;
-		}
+		} */
 
-		case IMPULSE_28: {
+		/*
+                case IMPULSE_28: {
 			if ( gameLocal.isClient || entityNumber == gameLocal.localClientNum ) {
 				gameLocal.mpGame.CastVote( gameLocal.localClientNum, true );
 			}
@@ -6699,10 +9221,31 @@ void idPlayer::PerformImpulse( int impulse ) {
 			}
 			break;
 		}
+                */
+
+/*
+		//ff1.1 start - pda
+		case IMPULSE_29: {
+			// opens the pda
+			if ( !gameLocal.isMultiplayer ) {
+				if ( objectiveSystemOpen ) {
+					TogglePDA();
+				} else if ( weapon_pda >= 0 ) {
+					SelectWeapon( weapon_pda, true );
+				}
+			}
+			break;
+		}
+
+
 		case IMPULSE_40: {
 			UseVehicle();
 			break;
 		}
+		//ff1.1 end
+	*/
+
+ /* commented out by ivan
 #ifdef _D3XP
 		 //Hack so the chainsaw will work in MP
 		case IMPULSE_27: {
@@ -6710,25 +9253,68 @@ void idPlayer::PerformImpulse( int impulse ) {
 			break;
 		}
 #endif
+*/
 	}
 }
 
-bool idPlayer::HandleESC( void ) {
+bool idPlayer::HandleESC( void ) { //true = ignore, false = go to main menu
+	//ff1.3 start
+	bool escHeld = ( gameLocal.fast.time < lastEscPressedTime + ESC_PRESSED_TIMEOUT );
+	lastEscPressedTime = gameLocal.fast.time;
+	//gameLocal.Printf("%d Esc pressed\n", gameLocal.fast.time);
+
+	if ( gameLocal.inCinematic ) {
+		if ( skipCinematicTipStartTime > 0 ) {
+			if ( gameLocal.fast.time > skipCinematicTipStartTime + SKIP_CIN_TIP_TIME ) {
+				//gameLocal.Printf("%d Try to skip\n", gameLocal.fast.time);
+				return SkipCinematic() || escHeld;
+			} else {
+				return true;
+			}
+		} else {
+			//gameLocal.Printf("%d Begin skip\n", gameLocal.fast.time);
+			skipCinematicTipStartTime = gameLocal.fast.time;
+			if ( infoGui ) {
+				infoGui->HandleNamedEvent( "tipSkipCinematicUp" );
+			}
+			return true;
+		}
+	}
+
+	/* was:
 	if ( gameLocal.inCinematic ) {
 		return SkipCinematic();
 	}
+	*/
+	//ff1.3 end
 
 	if ( objectiveSystemOpen ) {
 		TogglePDA();
 		return true;
 	}
 
-	return false;
+	return escHeld; //ff1.3 - was: false
 }
 
 bool idPlayer::SkipCinematic( void ) {
 	StartSound( "snd_skipcinematic", SND_CHANNEL_ANY, 0, false, NULL );
+	if ( skipCinematicTipStartTime > 0 ) {
+		HideSkipCinematicTip();
+	}
 	return gameLocal.SkipCinematic();
+}
+
+/*
+==============
+idPlayer::HideSkipCinematicTip
+==============
+*/
+void idPlayer::HideSkipCinematicTip( void ) {
+	skipCinematicTipStartTime = 0;
+	//gameLocal.Printf("%d reset skipCinematicTipStartTime\n", gameLocal.fast.time);
+	if ( infoGui ) {
+		infoGui->HandleNamedEvent( "tipSkipCinematicDown" );
+	}
 }
 
 /*
@@ -6773,15 +9359,21 @@ idPlayer::AdjustSpeed
 */
 void idPlayer::AdjustSpeed( void ) {
 	float speed;
-	float rate;
+	//float rate;
 
-	if ( spectating ) {
+	if ( IsRiding() ) { //ff1.1
+		speed = 0.0f;
+		bobFrac = 0.0f;
+	} else if ( spectating ) {
 		speed = pm_spectatespeed.GetFloat();
 		bobFrac = 0.0f;
 	} else if ( noclip ) {
 		speed = pm_noclipspeed.GetFloat();
 		bobFrac = 0.0f;
-	} else if ( !physicsObj.OnLadder() && ( usercmd.buttons & BUTTON_RUN ) && ( usercmd.forwardmove || usercmd.rightmove ) && ( usercmd.upmove >= 0 ) ) {
+	}
+	//ff1.3 start - always run! I mean... walk :)
+	/*
+	else if ( !physicsObj.OnLadder() && ( usercmd.buttons & BUTTON_RUN ) && ( usercmd.forwardmove || usercmd.rightmove ) && ( usercmd.upmove >= 0 ) ) {
 		if ( !gameLocal.isMultiplayer && !physicsObj.IsCrouching() && !PowerUpActive( ADRENALINE ) ) {
 			stamina -= MS2SEC( gameLocal.msec );
 		}
@@ -6796,7 +9388,12 @@ void idPlayer::AdjustSpeed( void ) {
 			bobFrac = stamina / pm_staminathreshold.GetFloat();
 		}
 		speed = pm_walkspeed.GetFloat() * ( 1.0f - bobFrac ) + pm_runspeed.GetFloat() * bobFrac;
-	} else {
+	}
+	*/
+	//ff1.3 end
+	else {
+		//ff1.3 start - disable stamina
+		/* was:
 		rate = pm_staminarate.GetFloat();
 
 		// increase 25% faster when not moving
@@ -6808,7 +9405,17 @@ void idPlayer::AdjustSpeed( void ) {
 		if ( stamina > pm_stamina.GetFloat() ) {
 			stamina = pm_stamina.GetFloat();
 		}
+		*/
+		//ff1.3 end
+
 		speed = pm_walkspeed.GetFloat();
+
+		//ff1.3 start
+		if ( PowerUpActive(HELLTIME) ) {
+			speed *= HELLTIME_SPEED_MULT;
+		}
+		//ff1.3 end
+
 		bobFrac = 0.0f;
 	}
 
@@ -7026,7 +9633,7 @@ void idPlayer::Move( void ) {
 	physicsObj.SetMaxStepHeight( pm_stepsize.GetFloat() );
 	physicsObj.SetMaxJumpHeight( pm_jumpheight.GetFloat() );
 
-	if ( noclip ) {
+	if ( noclip || IsRiding() ) { //ff1.1
 		physicsObj.SetContents( 0 );
 		physicsObj.SetMovementType( PM_NOCLIP );
 	} else if ( spectating ) {
@@ -7087,17 +9694,21 @@ void idPlayer::Move( void ) {
 		}
 	}
 
-	if ( noclip || gameLocal.inCinematic || ( influenceActive == INFLUENCE_LEVEL2 ) ) {
+	if ( noclip || gameLocal.inCinematic || ( influenceActive == INFLUENCE_LEVEL2 ) || IsRiding() ) { //ff1.1
 		AI_CROUCH	= false;
 		AI_ONGROUND	= ( influenceActive == INFLUENCE_LEVEL2 );
 		AI_ONLADDER	= false;
 		AI_JUMP		= false;
+		AI_DODGE	= false;
 	} else {
 		AI_CROUCH	= physicsObj.IsCrouching();
 		AI_ONGROUND	= physicsObj.HasGroundContacts();
 		AI_ONLADDER	= physicsObj.OnLadder();
 		AI_JUMP		= physicsObj.HasJumped();
+		AI_DODGE	= physicsObj.HasDodged();
 
+		//ff1.3 start - don't do this
+		/*
 		// check if we're standing on top of a monster and give a push if we are
 		idEntity *groundEnt = physicsObj.GetGroundEntity();
 		if ( groundEnt && groundEnt->IsType( idAI::Type ) ) {
@@ -7112,6 +9723,8 @@ void idPlayer::Move( void ) {
 			}
 			physicsObj.SetLinearVelocity( vel );
 		}
+		*/
+		//ff1.3 end
 	}
 
 	if ( AI_JUMP ) {
@@ -7132,9 +9745,15 @@ void idPlayer::Move( void ) {
 		}
 	}
 
+	if ( AI_DODGE ) {
+		StartSound( "snd_dodge", SND_CHANNEL_ANY, 0, false, NULL );
+	}
+
 	BobCycle( pushVelocity );
 	CrashLand( oldOrigin, oldVelocity );
 }
+
+#define PICKUP_ITEM_SLOTS 5
 
 /*
 ==============
@@ -7152,15 +9771,73 @@ void idPlayer::UpdateHud( void ) {
 		return;
 	}
 
+	//ff1.3 start
+	if ( !inventory.lastFullItemName.IsEmpty() ) {
+		hud->SetStateString("itemFullText", va("%s Full", inventory.lastFullItemName.c_str()) );
+		hud->HandleNamedEvent("itemFull");
+		inventory.lastFullItemName.Empty();
+	}
+	//ff1.3 end
+
 	int c = inventory.pickupItemNames.Num();
 	if ( c > 0 ) {
 		if ( gameLocal.time > inventory.nextItemPickup ) {
+			//ff1.3 start
+			if ( inventory.nextItemPickup && gameLocal.time - inventory.nextItemPickup > 2000 ) { //restart from 1 after an empty period
+				inventory.nextItemNum = 1;
+				//gameLocal.Printf("reset to 1\n");
+			}
+			else if ( ( gameLocal.time - inventory.lastShownItemTime < 1500 ) //must match visible time in gui
+					&& ( inventory.lastShownItem.amount > 0 )
+					&& ( inventory.lastShownItem.name.Icmp( inventory.pickupItemNames[0].name ) == 0 ) ) {
+				inventory.pickupItemNames[0].amount += inventory.lastShownItem.amount;
+				inventory.nextItemNum--; //back to the last used slot
+				if ( inventory.nextItemNum < 1 ) {
+					inventory.nextItemNum = PICKUP_ITEM_SLOTS;
+				}
+				//gameLocal.Printf("use the same slot\n");
+			}
+			inventory.lastShownItem = inventory.pickupItemNames[c-1];
+			inventory.lastShownItemTime = gameLocal.time;
+
+			int i;
+
+			for ( i = 0; i < 5, i < c; i++ ) {
+				if (inventory.nextItemNum == 1 ) {
+					inventory.onePickupTime = gameLocal.time;
+					//gameLocal.Printf("onePickupTime\n");
+				}
+				//gameLocal.Printf("nextItemNum %i\n", inventory.nextItemNum);
+				if ( gameLocal.time > 1000 ) { //ff1.3 - just like weapons, don't show ammo given at map start
+					if ( inventory.pickupItemNames[0].amount > 0 ) {
+						hud->SetStateString( va( "itemtext%i", inventory.nextItemNum ), va("%s +%i", inventory.pickupItemNames[0].name.c_str(), inventory.pickupItemNames[0].amount) );
+					} else {
+						hud->SetStateString( va( "itemtext%i", inventory.nextItemNum ), inventory.pickupItemNames[0].name );
+					}
+					//hud->SetStateString( va( "itemamount%i", inventory.nextItemNum ),
+						//( inventory.pickupItemNames[0].amount > 0 ) ? va("+ %i", inventory.pickupItemNames[0].amount) : ""); //ff1.3
+
+					hud->SetStateString( va( "itemicon%i", inventory.nextItemNum ), inventory.pickupItemNames[0].icon );
+					hud->HandleNamedEvent( va( "itemPickup%i", inventory.nextItemNum++ ) );
+				}
+				inventory.pickupItemNames.RemoveIndex( 0 );
+
+				if ( inventory.nextItemNum > PICKUP_ITEM_SLOTS ) {
+					inventory.nextItemNum = 1;
+					inventory.nextItemPickup = inventory.onePickupTime + 2000;
+				} else {
+					inventory.nextItemPickup = gameLocal.time + 400;
+				}
+			}
+
+
+			/* was:
 			if ( inventory.nextItemPickup && gameLocal.time - inventory.nextItemPickup > 2000 ) {
 				inventory.nextItemNum = 1;
 			}
 			int i, count = 5;
 #ifdef _D3XP
-			if(gameLocal.isMultiplayer) {
+			if (gameLocal.isMultiplayer) {
 				count = 3;
 			}
 
@@ -7172,6 +9849,7 @@ void idPlayer::UpdateHud( void ) {
 				hud->SetStateString( va( "itemicon%i", inventory.nextItemNum ), inventory.pickupItemNames[0].icon );
 				hud->HandleNamedEvent( va( "itemPickup%i", inventory.nextItemNum++ ) );
 				inventory.pickupItemNames.RemoveIndex( 0 );
+
 				if (inventory.nextItemNum == 1 ) {
 					inventory.onePickupTime = gameLocal.time;
 				} else	if ( inventory.nextItemNum > count ) { //_D3XP
@@ -7181,6 +9859,8 @@ void idPlayer::UpdateHud( void ) {
 					inventory.nextItemPickup = gameLocal.time + 400;
 				}
 			}
+			*/
+			//ff1.3 end
 		}
 	}
 
@@ -7207,12 +9887,14 @@ void idPlayer::UpdateHud( void ) {
 		}
 	}
 
+	/* ff1.3 - Moved to stats
 	hud->SetStateInt( "g_showProjectilePct", g_showProjectilePct.GetInteger() );
-	if ( numProjectilesFired ) {
-		hud->SetStateString( "projectilepct", va( "Hit %% %.1f", ( (float) numProjectileHits / numProjectilesFired ) * 100 ) );
+	if ( projFired ) {
+		hud->SetStateString( "projectilepct", va( "Hit %% %.1f", ( (float) projHits / projFired ) * 100 ) );
 	} else {
 		hud->SetStateString( "projectilepct", "Hit % 0.0" );
 	}
+	*/
 
 	if ( isLagged && gameLocal.isMultiplayer && gameLocal.localClientNum == entityNumber ) {
 		hud->SetStateString( "hudLag", "1" );
@@ -7279,6 +9961,30 @@ void idPlayer::StartFxOnBone( const char *fx, const char *bone ) {
 	idEntityFx::StartFx( fx, &offset, &axis, this, true );
 }
 
+void idPlayer::StartAdvancedWeaponZoom( void ) {
+	advancedWeaponZooming = true; //will go back to false when zoom-out if fully completed
+	StartSound( "snd_zoomin", SND_CHANNEL_ANY, 0, false, NULL );
+	zoomFov.Init( gameLocal.time, 1000.0f, DefaultZoomFov(), weapon.GetEntity()->GetZoomFov() );
+	advancedWeaponZoomTime = gameLocal.time;
+	if ( hud ) {
+		hud->HandleNamedEvent( "weaponZoomOn" );
+	}
+}
+
+void idPlayer::StopAdvancedWeaponZoom( void ) {
+	StartSound( "snd_zoomout", SND_CHANNEL_ANY, 0, false, NULL );
+	zoomFov.Init( gameLocal.time, 200.0f, zoomFov.GetCurrentValue( advancedWeaponZoomTime ), DefaultFov() );
+	advancedWeaponZoomTime = 0;
+}
+
+void idPlayer::CompleteAdvancedWeaponZoom( void ) {
+	advancedWeaponZooming = false;
+	if ( hud ) {
+		hud->HandleNamedEvent( "weaponZoomOff" );
+	}
+}
+
+
 /*
 ==============
 idPlayer::Think
@@ -7301,7 +10007,15 @@ void idPlayer::Think( void ) {
 	usercmd.buttons &= ~buttonMask;
 
 	if ( gameLocal.inCinematic && gameLocal.skipCinematic ) {
+		lastEscPressedTime = gameLocal.time; //like if ESC kept pressed
 		return;
+	}
+
+	if ( skipCinematicTipStartTime > 0
+		&& gameLocal.fast.time > lastEscPressedTime + ESC_PRESSED_TIMEOUT //not pressed anymore
+		&& gameLocal.fast.time > skipCinematicTipStartTime + SKIP_CIN_MIN_WAIT_TIME ){ //above min threshold
+
+		HideSkipCinematicTip();
 	}
 
 	// clear the ik before we do anything else so the skeleton doesn't get updated twice
@@ -7330,6 +10044,12 @@ void idPlayer::Think( void ) {
 		usercmd.forwardmove = 0;
 		usercmd.rightmove = 0;
 		usercmd.upmove = 0;
+
+		//ff1.3 start
+		if ( objectiveSystemOpen && objectiveSystem != NULL ) {
+			UpdatePDAStats( objectiveSystem );
+		}
+		//ff1.3 end
 	}
 
 	// log movement changes for weapon bobbing effects
@@ -7354,6 +10074,75 @@ void idPlayer::Think( void ) {
 		centerView.Init( gameLocal.time, 200, viewAngles.pitch, 0 );
 	}
 
+	//ff1.3 start
+	if ( currentVehicle ) {
+		if ( usercmd.upmove > 0 || noclip ) {
+			ExitVehicle();
+		}
+	} else {
+		if ( focusVehicle && !noclip && nextVehicleTime < gameLocal.time ) {
+			EnterVehicle( focusVehicle );
+		}
+	}
+
+	//vehicle zooming - use secondary fire as zoom
+	if ( currentVehicle && usercmd.buttons & BUTTON_5 ) {
+		usercmd.buttons |= BUTTON_ZOOM;
+	}
+
+	// weapon zooming
+	if ( weaponZoom.startZoom && !weaponZoom.quickMode && weapon.GetEntity() && weaponEnabled && !gameLocal.inCinematic ) {
+		if ( ( usercmd.buttons ^ oldCmd.buttons ) & BUTTON_5 ) {
+			if ( usercmd.buttons & BUTTON_5 ) { //down
+				if ( advancedWeaponZoomTime ) { //stop
+					StopAdvancedWeaponZoom();
+				} else { //start
+					StartAdvancedWeaponZoom();
+				}
+			}
+			/*
+			else if ( advancedWeaponZoomTime ) { //up
+				gameLocal.Printf("zoom wait\n");
+			}
+			*/
+		}else if ( advancedWeaponZoomTime && ( usercmd.buttons & BUTTON_5 ) ){ //holding
+			advancedWeaponZoomTime = gameLocal.time;
+		}
+	} else if ( advancedWeaponZoomTime ) { //stop
+		StopAdvancedWeaponZoom();
+	}
+
+	if ( advancedWeaponZooming && !advancedWeaponZoomTime && zoomFov.IsDone( gameLocal.time ) ) { //weapon zoom-out fully completed
+		CompleteAdvancedWeaponZoom();
+		if ( usercmd.buttons & BUTTON_ZOOM ) { //fix for standard zoom button being pressed while weapon zoom ends
+			zoomFov.Init( gameLocal.time, 200.0f, CalcFov( false ), DefaultZoomFov() );
+		}
+	} else if ( !advancedWeaponZooming ) {
+		// player zooming
+		if ( ( usercmd.buttons ^ oldCmd.buttons ) & BUTTON_ZOOM) {
+			if ( usercmd.buttons & BUTTON_ZOOM ) {
+				zoomFov.Init( gameLocal.time, 200.0f, CalcFov( false ), DefaultZoomFov() );
+			} else {
+				zoomFov.Init( gameLocal.time, 200.0f, zoomFov.GetCurrentValue( gameLocal.time ), DefaultFov() );
+			}
+		}
+
+#ifdef _DENTONMOD
+		// simple weapon zooming, initiated by weapon script
+		if ( weaponZoom.quickMode && ( weaponZoom.oldZoomStatus ^ weaponZoom.startZoom ) ) {
+			if ( weaponZoom.startZoom && weapon.GetEntity() ) {
+				weaponZoom.oldZoomStatus = true;
+				zoomFov.Init( gameLocal.time, 200.0f, CalcFov( false ), weapon.GetEntity()->GetZoomFov() );
+			} else {
+				weaponZoom.oldZoomStatus = false;
+				zoomFov.Init( gameLocal.time, 200.0f, zoomFov.GetCurrentValue( gameLocal.time ), DefaultFov() );
+			}
+		}
+#endif //_DENTONMOD_PLAYER_CPP
+
+	}
+
+	/*
 	// zooming
 	if ( ( usercmd.buttons ^ oldCmd.buttons ) & BUTTON_ZOOM ) {
 		if ( ( usercmd.buttons & BUTTON_ZOOM ) && weapon.GetEntity() ) {
@@ -7362,6 +10151,21 @@ void idPlayer::Think( void ) {
 			zoomFov.Init( gameLocal.time, 200.0f, zoomFov.GetCurrentValue( gameLocal.time ), DefaultFov() );
 		}
 	}
+
+#ifdef _DENTONMOD
+	// zooming, initiated by weapon script
+	if ( ( weaponZoom.oldZoomStatus ^ weaponZoom.startZoom ) ) {
+		if ( weaponZoom.startZoom && weapon.GetEntity() ) {
+			weaponZoom.oldZoomStatus = true;
+			zoomFov.Init( gameLocal.time, 200.0f, CalcFov( false ), weapon.GetEntity()->GetZoomFov() );
+		} else {
+			weaponZoom.oldZoomStatus = false;
+			zoomFov.Init( gameLocal.time, 200.0f, zoomFov.GetCurrentValue( gameLocal.time ), DefaultFov() );
+		}
+	}
+#endif //_DENTONMOD_PLAYER_CPP
+	*/
+	//ff1.3 end
 
 	// if we have an active gui, we will unrotate the view angles as
 	// we turn the mouse movements into gui events
@@ -7447,11 +10251,19 @@ void idPlayer::Think( void ) {
 		UpdateWeapon();
 	}
 
-	UpdateAir();
+	//UpdateAir(); //ff1.3 - removed
 
 #ifdef _D3XP
 	UpdatePowerupHud();
 #endif
+
+    if ( health > inventory.maxHealth && nextHealthDrop < gameLocal.time) {
+        health--;
+        nextHealthDrop = gameLocal.time + pm_exceedingHealthRate.GetInteger();
+    }
+
+    UpdateKillsMedals(); //ff1.3
+    UpdateMedalsQueue(); //ff1.3
 
 	UpdateHud();
 
@@ -7545,11 +10357,11 @@ void idPlayer::Think( void ) {
 	}
 
 #ifdef _D3XP
-	inventory.RechargeAmmo(this);
+	//inventory.RechargeAmmo(this); //ff1.3 - removed
 
-	if(healthRecharge) {
+	if (healthRecharge) {
 		int elapsed = gameLocal.time - lastHealthRechargeTime;
-		if(elapsed >= rechargeSpeed) {
+		if (elapsed >= rechargeSpeed) {
 			int intervals = (gameLocal.time - lastHealthRechargeTime)/rechargeSpeed;
 			Give("health", va("%d", intervals));
 			lastHealthRechargeTime += intervals*rechargeSpeed;
@@ -7608,25 +10420,47 @@ bool idPlayer::CanGive( const char *statname, const char *value ) {
 		return false;
 	}
 
-	if ( !idStr::Icmp( statname, "health" ) ) {
+	//ff1.3 - was: if ( !idStr::Icmp( statname, "health" ) ) {
+	if ( !idStr::Icmpn( statname, "health", 6 ) ) {
 		if ( health >= inventory.maxHealth ) {
 			return false;
 		}
 		return true;
-	} else if ( !idStr::Icmp( statname, "stamina" ) ) {
+	}
+	else if ( !idStr::Icmp( statname, "takeme" )){ // jetpack and possession
+		return true;
+	}
+	//ff1.1 end
+
+	//ff1.3 start - disable stamina
+	/* was:
+	else if ( !idStr::Icmp( statname, "stamina" ) ) {
 		if ( stamina >= 100 ) {
 			return false;
 		}
 		return true;
 
-	} else if ( !idStr::Icmp( statname, "heartRate" ) ) {
+	}
+	*/
+	else if ( !idStr::Icmp( statname, "soul" )){
 		return true;
-
+	}
+	else if ( !idStr::Icmp( statname, "staminaHelltime" )){
+		return true;
+	}
+	else if ( !idStr::Icmp( statname, "monsterHealth" )){
+		return (currentRiddenAI != NULL);
+	}
+	//ff1.3 end
+	else if ( !idStr::Icmp( statname, "heartRate" ) ) {
+		return true;
+	/* removed by ff1.3
 	} else if ( !idStr::Icmp( statname, "air" ) ) {
 		if ( airTics >= pm_airTics.GetInteger() ) {
 			return false;
 		}
 		return true;
+	*/
 	}
 
 	return inventory.CanGive( this, spawnArgs, statname, value, &idealWeapon );
@@ -7638,33 +10472,27 @@ idPlayer::StopHelltime
 
 provides a quick non-ramping way of stopping helltime
 =================
-*/
+
 void idPlayer::StopHelltime( bool quick ) {
 	if ( !PowerUpActive( HELLTIME ) ) {
 		return;
-	}
-
-	// take away the powerups
-	if ( PowerUpActive( INVULNERABILITY ) ) {
-		ClearPowerup( INVULNERABILITY );
-	}
-
-	if ( PowerUpActive( BERSERK ) ) {
-		ClearPowerup( BERSERK );
 	}
 
 	if ( PowerUpActive( HELLTIME ) ) {
 		ClearPowerup( HELLTIME );
 	}
 
+	//ff1.3 start - commented out: loop sound is now stopped by exit sound when pw is disabled
 	// stop the looping sound
-	StopSound( SND_CHANNEL_DEMONIC, false );
+	//StopSound( SND_CHANNEL_DEMONIC, false );
+	//ff1.3 end
 
 	// reset the game vars
 	if ( quick ) {
 		gameLocal.QuickSlowmoReset();
 	}
 }
+*/
 
 /*
 =================
@@ -7672,13 +10500,18 @@ idPlayer::Event_ToggleBloom
 =================
 */
 void idPlayer::Event_ToggleBloom( int on ) {
-	if ( on ) {
-		bloomEnabled = true;
-	}
-	else {
-		bloomEnabled = false;
-	}
+	EnableBloom( on > 0 );
 }
+
+/*
+=================
+idPlayer::EnableBloom
+=================
+*/
+void idPlayer::EnableBloom( bool on ) {
+	bloomEnabled = on;
+}
+
 
 /*
 =================
@@ -7690,18 +10523,6 @@ void idPlayer::Event_SetBloomParms( float speed, float intensity ) {
 	bloomIntensity = intensity;
 }
 
-/*
-=================
-idPlayer::PlayHelltimeStopSound
-=================
-*/
-void idPlayer::PlayHelltimeStopSound() {
-	const char* sound;
-
-	if ( spawnArgs.GetString( "snd_helltime_stop", "", &sound ) ) {
-		PostEventMS( &EV_StartSoundShader, 0, sound, SND_CHANNEL_ANY );
-	}
-}
 #endif
 
 /*
@@ -7754,6 +10575,14 @@ void idPlayer::Kill( bool delayRespawn, bool nodamage ) {
 			ServerSpectate( true );
 			forceRespawn = true;
 		} else {
+			//ff1.3 start
+			if ( currentRiddenAI ) {
+				currentRiddenAI->UnbindDriver(true);
+			}
+			if ( currentVehicle ) {
+				ExitVehicle();
+			}
+			//ff1.3 end
 			Damage( this, this, vec3_origin, "damage_suicide", 1.0f, INVALID_JOINT );
 			if ( delayRespawn ) {
 				forceRespawn = false;
@@ -7774,6 +10603,10 @@ void idPlayer::Killed( idEntity *inflictor, idEntity *attacker, int damage, cons
 	float delay;
 
 	assert( !gameLocal.isClient );
+
+	//ff1.3 start - stop dmgfx
+	idActor::Killed(inflictor, attacker, damage, dir, location);
+	//ff1.3 end
 
 	// stop taking knockback once dead
 	fl.noknockback = true;
@@ -7923,19 +10756,32 @@ void idPlayer::CalcDamagePoints( idEntity *inflictor, idEntity *attacker, const 
 	int		damage;
 	int		armorSave;
 
-	damageDef->GetInt( "damage", "20", damage );
+	damageDef->GetInt( "damage", "0", damage );
 	damage = GetDamageForLocation( damage, location );
+	//gameLocal.Printf("damage start %d\n", damage);
+
+	//ff1.3 start
+	//half damage while bullet time is active
+	if ( PowerUpActive( HELLTIME ) ) {
+		damage *= 0.50f;
+		if ( damage < 1 ) {
+			damage = 1;
+		}
+	}
+	//ff1.3 end
 
 	idPlayer *player = attacker->IsType( idPlayer::Type ) ? static_cast<idPlayer*>(attacker) : NULL;
 	if ( !gameLocal.isMultiplayer ) {
 		if ( inflictor != gameLocal.world ) {
 			switch ( g_skill.GetInteger() ) {
 				case 0:
-					damage *= 0.80f;
+					damage *= 0.90f; //ff1.3 - was: 0.8
 					if ( damage < 1 ) {
 						damage = 1;
 					}
 					break;
+				case 1: //ff1.3
+					damage *= 1.10f;
 				case 2:
 					damage *= 1.70f;
 					break;
@@ -7948,7 +10794,9 @@ void idPlayer::CalcDamagePoints( idEntity *inflictor, idEntity *attacker, const 
 		}
 	}
 
-	damage *= damageScale;
+	//gameLocal.Printf("damage %d, damageScale %f, playerDamageScale %f\n", damage, damageScale, damageDef->GetFloat( "playerDamageScale", "1" ));
+	damage = (int)ceil( damage * damageScale * damageDef->GetFloat( "playerDamageScale", "1" ) ); //ff1.3 - extra scale for players
+	//gameLocal.Printf("damage -> %d\n", damage);
 
 	// always give half damage if hurting self
 	if ( attacker == this ) {
@@ -7990,7 +10838,7 @@ void idPlayer::CalcDamagePoints( idEntity *inflictor, idEntity *attacker, const 
 
 		if ( !damage ) {
 			armorSave = 0;
-		} else if ( armorSave >= damage ) {
+		} else if ( armorSave >= damage && damage > 1 ) { //ff1.3: "damage > 1" added - fix for damage = 1 not removing armor (eg: bfg)
 			armorSave = damage - 1;
 			damage = 1;
 		} else {
@@ -7999,6 +10847,7 @@ void idPlayer::CalcDamagePoints( idEntity *inflictor, idEntity *attacker, const 
 	} else {
 		armorSave = 0;
 	}
+	//gameLocal.Printf("damage after armor -> %d\n", damage);
 
 	// check for team damage
 	if ( gameLocal.mpGame.IsGametypeTeamBased() /* CTF */
@@ -8048,9 +10897,10 @@ void idPlayer::Damage( idEntity *inflictor, idEntity *attacker, const idVec3 &di
 		return;
 	}
 
-	if ( !fl.takedamage || noclip || spectating || gameLocal.inCinematic ) {
-		return;
-	}
+	if ( !fl.takedamage || noclip || spectating || gameLocal.inCinematic
+        || IsRiding() || privateCameraView ) { //v1.3 - no damage to player while riding or teleporting
+        return;
+    }
 
 	if ( !inflictor ) {
 		inflictor = gameLocal.world;
@@ -8065,11 +10915,24 @@ void idPlayer::Damage( idEntity *inflictor, idEntity *attacker, const idVec3 &di
 			return;
 		}
 #endif
+
+		//ff start - always ignore damage from friends
+		if ( static_cast<idAI *>(attacker)->team == 0 ) {
+			return;
+		}
+		//ff end
+
 		// don't take damage from monsters during influences
 		if ( influenceActive != 0 ) {
 			return;
 		}
 	}
+	//ff1.3 start -  handle projectiles fired by already-removed friends (rare, but could happen)
+	else if ( inflictor->IsType( idProjectile::Type ) && static_cast<idProjectile *>(inflictor)->FiredByFriend() ) {
+		gameLocal.Warning( "Ignored damage for projectile fired by removed friend" );
+		return;
+	}
+	//ff1.3 end
 
 	const idDeclEntityDef *damageDef = gameLocal.FindEntityDef( damageDefName, false );
 	if ( !damageDef ) {
@@ -8080,6 +10943,12 @@ void idPlayer::Damage( idEntity *inflictor, idEntity *attacker, const idVec3 &di
 	if ( damageDef->dict.GetBool( "ignore_player" ) ) {
 		return;
 	}
+
+	//ivan start
+	if ( allowDmgfxs && !gibbed ) {
+		CheckDamageFx( &damageDef->dict, attacker );
+	}
+	//ivan end
 
 	CalcDamagePoints( inflictor, attacker, &damageDef->dict, damageScale, location, &damage, &armorSave );
 
@@ -8162,8 +11031,13 @@ void idPlayer::Damage( idEntity *inflictor, idEntity *attacker, const idVec3 &di
 			float scale = g_damageScale.GetFloat();
 #endif
 			if ( g_useDynamicProtection.GetBool() && g_skill.GetInteger() < 2 ) {
-				if ( gameLocal.time > lastDmgTime + 500 && scale > 0.25f ) {
+				//ff1.3 start
+				//was: if ( gameLocal.time > lastDmgTime + 500 && scale > 0.25f ) {
+				if ( gameLocal.time < lastDmgTime + 500 && scale > 0.25f ) {
+				//ff1.3 end
 					scale -= 0.05f;
+
+					//gameLocal.Printf("scale down to -> %f\n", scale);
 #ifdef _D3XP
 					new_g_damageScale = scale;
 #else
@@ -8175,11 +11049,17 @@ void idPlayer::Damage( idEntity *inflictor, idEntity *attacker, const idVec3 &di
 			if ( scale > 0.0f ) {
 				damage *= scale;
 			}
+
+			//gameLocal.Printf("damage after new_g_damageScale -> %d, scale %f\n", damage, scale);
 		}
 
 		if ( damage < 1 ) {
 			damage = 1;
 		}
+
+		//ff1.3 start - upd stats
+        playerStats.damage += damage;
+        //ff1.3 end
 
 		health -= damage;
 
@@ -8228,6 +11108,19 @@ idPlayer::Teleport
 void idPlayer::Teleport( const idVec3 &origin, const idAngles &angles, idEntity *destination ) {
 	idVec3 org;
 
+	//ff1.3 start
+	teleportEntity = destination;
+
+	if ( currentRiddenAI ) {
+		currentRiddenAI->Teleport(origin, angles, destination);
+		return;
+	}
+	else if ( currentVehicle ) {
+		currentVehicle->Teleport(origin, angles, destination);
+		return;
+	}
+	//ff1.3 end
+
 	if ( weapon.GetEntity() ) {
 		weapon.GetEntity()->LowerWeapon();
 	}
@@ -8254,7 +11147,7 @@ void idPlayer::Teleport( const idVec3 &origin, const idAngles &angles, idEntity 
 
 	UpdateVisuals();
 
-	teleportEntity = destination;
+	//teleportEntity = destination; //ff1.3 - moved up
 
 	if ( !gameLocal.isClient && !noclip ) {
 		if ( gameLocal.isMultiplayer ) {
@@ -8268,7 +11161,7 @@ void idPlayer::Teleport( const idVec3 &origin, const idAngles &angles, idEntity 
 
 #ifdef _D3XP
 	if ( PowerUpActive( HELLTIME ) ) {
-		StopHelltime();
+		ClearPowerup( HELLTIME );
 	}
 #endif
 }
@@ -8278,14 +11171,34 @@ void idPlayer::Teleport( const idVec3 &origin, const idAngles &angles, idEntity 
 idPlayer::SetPrivateCameraView
 ====================
 */
-void idPlayer::SetPrivateCameraView( idCamera *camView ) {
+void idPlayer::SetPrivateCameraView( idCamera *camView, bool weaponEnterCinematic ) {
 	privateCameraView = camView;
 	if ( camView ) {
-		StopFiring();
-		Hide();
+		if( currentVehicle ){
+			currentVehicle->PostEventMS( &EV_Hide, 0 );
+		} else if( currentRiddenAI ){
+			currentRiddenAI->PostEventMS( &EV_Hide, 0 );
+		} else {
+			StopFiring();
+			Hide();
+		}
+
+		if ( weaponEnterCinematic && weaponEnabled && weapon.GetEntity() ) { //ff1.3 - weaponEnterCinematic
+			weapon.GetEntity()->EnterCinematic();
+		}
 	} else {
 		if ( !spectating ) {
-			Show();
+			if( currentVehicle ){
+				currentVehicle->PostEventMS( &EV_Show, 0 );
+			} else if( currentRiddenAI ){
+				currentRiddenAI->PostEventMS( &EV_Show, 0 );
+			} else {
+				Show();
+			}
+
+			if ( weaponEnterCinematic && weaponEnabled && weapon.GetEntity() ) { //ff1.3 - weaponEnterCinematic
+				weapon.GetEntity()->ExitCinematic();
+			}
 		}
 	}
 }
@@ -8330,11 +11243,39 @@ float idPlayer::CalcFov( bool honorZoom ) {
 		return influenceFov;
 	}
 
-	if ( zoomFov.IsDone( gameLocal.time ) ) {
-		fov = ( honorZoom && usercmd.buttons & BUTTON_ZOOM ) && weapon.GetEntity() ? weapon.GetEntity()->GetZoomFov() : DefaultFov();
-	} else {
-		fov = zoomFov.GetCurrentValue( gameLocal.time );
+	//ff1.3 start
+	if ( advancedWeaponZoomTime ) {
+		if ( zoomFov.IsDone( advancedWeaponZoomTime ) ) {
+			fov = ( honorZoom && weapon.GetEntity() ) ? weapon.GetEntity()->GetZoomFov() : DefaultFov();
+		} else {
+			fov = zoomFov.GetCurrentValue( advancedWeaponZoomTime );
+		}
+	} else { //old
+		if ( zoomFov.IsDone( gameLocal.time ) ) {
+#ifdef _DENTONMOD
+			if ( honorZoom ) {
+				if ( weaponZoom.quickMode && weaponZoom.startZoom && weapon.GetEntity() ) {
+					fov = weapon.GetEntity()->GetZoomFov();
+				} else if ( usercmd.buttons & BUTTON_ZOOM ) {
+					fov = DefaultZoomFov();
+				} else {
+					fov = DefaultFov();
+				}
+			} else {
+				fov = DefaultFov();
+			}
+			//fov = ( honorZoom && ((usercmd.buttons & BUTTON_ZOOM) || weaponZoom.startZoom )) && weapon.GetEntity() ? weapon.GetEntity()->GetZoomFov() : DefaultFov(); // Updated By Clone JCD
+			//fov = ( honorZoom && (usercmd.buttons & BUTTON_ZOOM) ) ? DefaultZoomFov() : DefaultFov(); //ff1.3
+#else
+			fov = ( honorZoom && (usercmd.buttons & BUTTON_ZOOM)) && weapon.GetEntity() ? weapon.GetEntity()->GetZoomFov() : DefaultFov(); // Updated By Clone JCD
+#endif // _DENTONMOD
+
+		} else {
+			fov = zoomFov.GetCurrentValue( gameLocal.time );
+		}
 	}
+	//ff1.3 end
+
 
 	// bound normal viewsize
 	if ( fov < 1 ) {
@@ -8518,11 +11459,25 @@ void idPlayer::OffsetThirdPersonView( float angle, float range, float height, bo
 	float			forwardScale, sideScale;
 	idVec3			origin;
 	idAngles		angles;
-	idMat3			axis;
+	idMat3			axis; //not used
 	idBounds		bounds;
+	idEntity *		passEntity; //ff1.3
 
 	angles = viewAngles;
-	GetViewPos( origin, axis );
+
+	//ivan start
+	//was:	GetViewPos( origin, axis );
+	if ( currentRiddenAI ) {
+		currentRiddenAI->GetCameraPos( origin, axis );
+		passEntity = currentRiddenAI;
+	} else if ( currentVehicle ) {
+		currentVehicle->GetCameraPos( origin, axis );
+		passEntity = currentVehicle;
+	} else {
+		GetViewPos( origin, axis );
+		passEntity = this;
+	}
+	//ivan end
 
 	if ( angle ) {
 		angles.pitch = 0.0f;
@@ -8537,6 +11492,10 @@ void idPlayer::OffsetThirdPersonView( float angle, float range, float height, bo
 	view = origin;
 	view.z += 8 + height;
 
+	//ff1.3 start
+	//gameRenderWorld->DebugArrow( colorRed, origin, view, 12 );
+	//ff1.3 end
+
 	angles.pitch *= 0.5f;
 	renderView->viewaxis = angles.ToMat3() * physicsObj.GetGravityAxis();
 
@@ -8548,14 +11507,14 @@ void idPlayer::OffsetThirdPersonView( float angle, float range, float height, bo
 		// trace a ray from the origin to the viewpoint to make sure the view isn't
 		// in a solid block.  Use an 8 by 8 block to prevent the view from near clipping anything
 		bounds = idBounds( idVec3( -4, -4, -4 ), idVec3( 4, 4, 4 ) );
-		gameLocal.clip.TraceBounds( trace, origin, view, bounds, MASK_SOLID, this );
+		gameLocal.clip.TraceBounds( trace, origin, view, bounds, MASK_SOLID, passEntity /*this*/ );
 		if ( trace.fraction != 1.0f ) {
 			view = trace.endpos;
 			view.z += ( 1.0f - trace.fraction ) * 32.0f;
 
 			// try another trace to this position, because a tunnel may have the ceiling
 			// close enough that this is poking out
-			gameLocal.clip.TraceBounds( trace, origin, view, bounds, MASK_SOLID, this );
+			gameLocal.clip.TraceBounds( trace, origin, view, bounds, MASK_SOLID, passEntity /*this*/ );
 			view = trace.endpos;
 		}
 	}
@@ -8706,14 +11665,35 @@ void idPlayer::CalculateRenderView( void ) {
 			renderView->vieworg = firstPersonViewOrigin;
 			renderView->viewaxis = firstPersonViewAxis;
 
-			if ( !pm_thirdPerson.GetBool() ) {
+			//was: if ( !pm_thirdPerson.GetBool() ) { //ivan
+			if ( !UseThirdPersonCamera() ) { //ivan
 				// set the viewID to the clientNum + 1, so we can suppress the right player bodies and
 				// allow the right player view weapons
 				renderView->viewID = entityNumber + 1;
 			}
+		//ff1.3 start
+/*
+was:
 		} else if ( pm_thirdPerson.GetBool() ) {
 			OffsetThirdPersonView( pm_thirdPersonAngle.GetFloat(), pm_thirdPersonRange.GetFloat(), pm_thirdPersonHeight.GetFloat(), pm_thirdPersonClip.GetBool() );
-		} else if ( pm_thirdPersonDeath.GetBool() ) {
+		}
+*/
+		} else if ( UseThirdPersonCamera() ) { //ivan
+			/*
+			if ( ffdebug.GetBool() ) {
+				OffsetThirdPersonView( pm_thirdPersonAngle.GetFloat(), pm_thirdPersonRange.GetFloat(), pm_thirdPersonHeight.GetFloat(), pm_thirdPersonClip.GetBool() );
+			}else
+			*/
+			if ( currentRiddenAI ) {
+				OffsetThirdPersonView( pm_thirdPersonAngle.GetFloat(), currentRiddenAI->GetThirdPersonRange(), currentRiddenAI->GetThirdPersonHeight(), pm_thirdPersonClip.GetBool() );
+			} else if ( currentVehicle ) {
+				OffsetThirdPersonView( pm_thirdPersonAngle.GetFloat(), currentVehicle->GetThirdPersonRange(), currentVehicle->GetThirdPersonHeight(), pm_thirdPersonClip.GetBool() );
+			} else {
+				OffsetThirdPersonView( pm_thirdPersonAngle.GetFloat(), pm_thirdPersonRange.GetFloat(), pm_thirdPersonHeight.GetFloat(), pm_thirdPersonClip.GetBool() );
+			}
+		}
+		//ff1.3 end
+		else if ( pm_thirdPersonDeath.GetBool() ) {
 			range = gameLocal.time < minRespawnTime ? ( gameLocal.time + RAGDOLL_DEATH_TIME - minRespawnTime ) * ( 120.0f / RAGDOLL_DEATH_TIME ) : 120.0f;
 			OffsetThirdPersonView( 0.0f, 20.0f + range, 0.0f, false );
 		} else {
@@ -8743,8 +11723,9 @@ void idPlayer::CalculateRenderView( void ) {
 idPlayer::AddAIKill
 =============
 */
-void idPlayer::AddAIKill( void ) {
-
+void idPlayer::AddAIKill( idActor *victim, idEntity *inflictor, const idDict *damageDef ) {
+	//ff1.3 start
+	/* was:
 #ifndef _D3XP
 
 	int max_souls;
@@ -8767,16 +11748,131 @@ void idPlayer::AddAIKill( void ) {
 		}
 	}
 #endif
+	*/
+
+	if ( gameLocal.inCinematic ) {
+		return;
+	}
+
+	playerStats.killCount++;
+
+	//give hp for bullet-time kills
+	if ( PowerUpActive( HELLTIME ) ) {
+		AddExtraHealth();
+	}
+
+	//log kill times for massacre check
+	for( int i = MASSACRE_KILLS - 1; i > 0; i-- ) {
+		lastKillTimes[ i ] = lastKillTimes[ i-1 ];
+	}
+	lastKillTimes[ 0 ] = gameLocal.fast.time;
+
+	//medals for special weapons
+	if ( inflictor->spawnArgs.GetBool( "grabbed" ) ) {
+		//gameLocal.Printf("GrabberMedal\n");
+		GiveMedal(MEDAL_SKILLSHOT);
+	}
+	else if ( damageDef->GetBool( "chainsaw" ) ) {
+		//gameLocal.Printf("ChainsawMedal\n");
+		GiveMedal(MEDAL_CHAINKILL);
+	}
+	else if ( damageDef->GetBool( "railgun" ) ) {
+		//multiple rail kills happens in the same frame
+		if ( lastKillTimes[ 1 ] == gameLocal.fast.time ) {
+			if ( lastKillTimes[ 2 ] != gameLocal.fast.time ) { //trigger the medal only at second kill
+				//gameLocal.Printf("RailMedal\n");
+				GiveMedal(MEDAL_SKILLSHOT);
+			}
+			return; //don't update tempKillCount so that we don't trigger double or multi kill
+		}
+	}
+
+	//temporary kill count for double/multi kill
+	tempKillCount++;
+	//ff1.3 end
 }
 
 /*
 =============
-idPlayer::SetSoulCubeProjectile
+idPlayer::AddExtraHealth
 =============
 */
+void idPlayer::AddExtraHealth( void ) {
+	if( health <= 0 ){
+		return; //don't add health if dead
+	}
+	health += HP_EXTRA;
+	healthAdded += HP_EXTRA;
+	hudPulseFlags |= HUD_PULSE_HEALTH_ADDER;
+
+	//wait a little before decreasing if we are above maxHealth
+	nextHealthDrop = gameLocal.fast.time + pm_exceedingHealthRate.GetInteger();
+}
+
+/*
+=============
+idPlayer::AddExtraHealth
+=============
+*/
+void idPlayer::IncreaseMaxHealth( void ) {
+	inventory.maxHealth++;
+	//hudPulseFlags |= HUD_PULSE_MAXHEALTH_ADDER;
+}
+
+
+//ff1.3 start
+/*
+=============
+idPlayer::SetSoulCubeProjectile
+=============
 void idPlayer::SetSoulCubeProjectile( idProjectile *projectile ) {
 	soulCubeProjectile = projectile;
 }
+*/
+
+/*
+================
+idPlayer::GetPainKillerBeamData
+================
+*/
+void idPlayer::GetPainKillerBeamData( idVec3 &returnPos, bool &beamEnabled ) {
+	if ( currentRiddenAI ) {
+		returnPos = currentRiddenAI->GetPhysics()->GetAbsBounds().GetCenter();
+		beamEnabled = false;
+	} else if ( currentVehicle ) {
+		returnPos = currentVehicle->GetPhysics()->GetAbsBounds().GetCenter();
+		beamEnabled = false;
+	} else if ( currentWeapon == weapon_shockrifle && weapon.GetEntity() ) {
+		weapon.GetEntity()->GetMuzzlePos(returnPos);
+		beamEnabled = !IsHidden();
+	} else {
+		returnPos = physicsObj.GetAbsBounds().GetCenter();
+		beamEnabled = false;
+	}
+}
+
+/*
+=============
+idPlayer::PainKillerReturnedCallback
+=============
+*/
+void idPlayer::PainKillerReturnedCallback( bool hit ) {
+	painKillerProjectile = NULL;
+	//gameLocal.Printf("PainKillerReturnedCallback\n");
+	if ( !hit ) {
+		//gameLocal.Printf("PainKillerReturnedCallback !hit \n");
+		AddPwAmmoWeapon( weapon_shockrifle, 1 );
+		//hud->HandleNamedEvent( "painKillerReady" );
+		playerStats.projFired--;
+	}
+
+	if ( weaponEnabled && currentWeapon == weapon_shockrifle && weapon.GetEntity() ) {
+		StartSound( "snd_painkiller_returned", SND_CHANNEL_ANY, 0, false, NULL );
+		weapon.GetEntity()->MuzzleKick();
+	}
+}
+
+//ff1.3 end
 
 /*
 =============
@@ -8784,16 +11880,34 @@ idPlayer::AddProjectilesFired
 =============
 */
 void idPlayer::AddProjectilesFired( int count ) {
-	numProjectilesFired += count;
+	playerStats.projFired += count;
 }
 
 /*
 =============
-idPlayer::AddProjectileHites
+idPlayer::AddProjectileHits
 =============
 */
-void idPlayer::AddProjectileHits( int count ) {
-	numProjectileHits += count;
+void idPlayer::AddProjectileHits( int count, int hitCountGroupId ) {
+	//ff1.3 start
+	int i;
+
+	if ( hitCountGroupId > 0 ) {
+		for( i = 0; i < NUM_HIT_COUNT_GROUP_IDS; i++ ) {
+			if ( hitCountGroupIds[ i ] == hitCountGroupId ) {
+				//gameLocal.Printf("Not added: %d found in %d\n", hitCountGroupId, i);
+				return;
+			}
+		}
+		//gameLocal.Printf("Insert %d in %d\n", hitCountGroupId, nextHitCountGroupIndex);
+		hitCountGroupIds[ nextHitCountGroupIndex++ ] = hitCountGroupId;
+		if ( nextHitCountGroupIndex >= NUM_HIT_COUNT_GROUP_IDS ) {
+			nextHitCountGroupIndex = 0;
+		}
+	}
+	//ff1.3  end
+
+	playerStats.projHits += count;
 }
 
 /*
@@ -8949,6 +12063,61 @@ void idPlayer::Event_GetViewAngles( void ) {
 	idThread::ReturnVector( idVec3( viewAngles[0], viewAngles[1], viewAngles[2] ) );
 }
 
+//ff1.3 start
+/*
+=================
+idPlayer::GetAimPos
+=================
+
+idVec3 idPlayer::GetAimPos( idEntity* ignoreEnt ) {
+	idVec3 end = renderView->vieworg + renderView->viewaxis[ 0 ] * 3000.0f;
+	trace_t trace;
+	gameLocal.clip.TracePoint( trace, renderView->vieworg, end, MASK_SOLID|CONTENTS_RENDERMODEL, ignoreEnt ? ignoreEnt : this );
+	if ( trace.fraction < 1.0f ) {
+		return trace.endpos;
+	}
+	return end;
+}
+*/
+
+/*
+=================
+idPlayer::GetAimAngles
+=================
+
+idAngles idPlayer::GetAimAngles( const idVec3 &firePos, idEntity* ignoreEnt ) {
+	idVec3 end = GetAimPos( ignoreEnt );
+	if ( g_debugVehicle.GetBool() ) {
+		gameRenderWorld->DebugArrow( colorRed, firePos, end, 2, 10000 );
+		gameRenderWorld->DebugBounds( colorBlue, idBounds( vec3_origin ).Expand( 5.0f ), firePos, 10000 );
+	}
+	return (end - firePos).ToAngles();
+}
+*/
+
+
+/*
+=================
+idPlayer::Event_GetAimPos
+=================
+
+void idPlayer::Event_GetAimPos( idEntity* ignoreEnt ) {
+	idVec3 end = GetAimPos( ignoreEnt );
+	idThread::ReturnVector( idVec3( end[0], end[1], end[2] ) );
+}
+*/
+/*
+=================
+idPlayer::Event_GetAimAngles
+=================
+
+void idPlayer::Event_GetAimAngles( idVec3 firePos, idEntity* ignoreEnt ) {
+	idAngles angles = GetAimAngles( firePos, ignoreEnt );
+	idThread::ReturnVector( idVec3( angles[0], angles[1], angles[2] ) );
+}
+*/
+//ff1.3 end
+
 /*
 ==================
 idPlayer::Event_StopFxFov
@@ -8975,10 +12144,23 @@ idPlayer::Event_EnableWeapon
 */
 void idPlayer::Event_EnableWeapon( void ) {
 	hiddenWeapon = gameLocal.world->spawnArgs.GetBool( "no_Weapons" );
+
+	//ff1.3 start
+	if ( IsRiding() ) {
+		weaponEnabledOnRideExit = true;
+	} else {
+		weaponEnabled = true;
+		if ( weapon.GetEntity() ) {
+			weapon.GetEntity()->ExitCinematic();
+		}
+	}
+	/* was:
 	weaponEnabled = true;
 	if ( weapon.GetEntity() ) {
 		weapon.GetEntity()->ExitCinematic();
 	}
+	*/
+	//ff1.3 end
 }
 
 /*
@@ -8988,10 +12170,23 @@ idPlayer::Event_DisableWeapon
 */
 void idPlayer::Event_DisableWeapon( void ) {
 	hiddenWeapon = gameLocal.world->spawnArgs.GetBool( "no_Weapons" );
+
+	//ff1.3 start
+	if ( IsRiding() ) {
+		weaponEnabledOnRideExit = false;
+	} else {
+		weaponEnabled = false;
+		if ( weapon.GetEntity() ) {
+			weapon.GetEntity()->EnterCinematic();
+		}
+	}
+	/* was:
 	weaponEnabled = false;
 	if ( weapon.GetEntity() ) {
 		weapon.GetEntity()->EnterCinematic();
 	}
+	*/
+	//ff1.3 end
 }
 
 #ifdef _D3XP
@@ -9012,6 +12207,7 @@ idPlayer::Event_RemoveInventoryItem
 void idPlayer::Event_RemoveInventoryItem( const char* name ) {
 	RemoveInventoryItem(name);
 }
+
 
 /*
 ==================
@@ -9066,12 +12262,17 @@ idPlayer::Event_StopHelltime
 ==================
 */
 void idPlayer::Event_StopHelltime( int mode ) {
+	if ( PowerUpActive( HELLTIME ) ) {
+		ClearPowerup( HELLTIME );
+	}
+	/*
 	if ( mode == 1 ) {
 		StopHelltime( true );
 	}
 	else {
 		StopHelltime( false );
 	}
+	*/
 }
 
 /*
@@ -9080,10 +12281,14 @@ idPlayer::Event_WeaponAvailable
 ==================
 */
 void idPlayer::Event_WeaponAvailable( const char* name ) {
-
 	idThread::ReturnInt( WeaponAvailable(name) ? 1 : 0 );
 }
 
+/*
+==================
+idPlayer::WeaponAvailable
+==================
+*/
 bool idPlayer::WeaponAvailable( const char* name ) {
 	for( int i = 0; i < MAX_WEAPONS; i++ ) {
 		if ( inventory.weapons & ( 1 << i ) ) {
@@ -9233,30 +12438,42 @@ void idPlayer::Event_ExitTeleporter( void ) {
 		ServerSendEvent( EVENT_EXIT_TELEPORTER, NULL, false, -1 );
 	}
 
-	SetPrivateCameraView( NULL );
-	// setup origin and push according to the exit target
-	SetOrigin( exitEnt->GetPhysics()->GetOrigin() + idVec3( 0, 0, CM_CLIP_EPSILON ) );
-	SetViewAngles( exitEnt->GetPhysics()->GetAxis().ToAngles() );
-	physicsObj.SetLinearVelocity( exitEnt->GetPhysics()->GetAxis()[ 0 ] * pushVel );
-	physicsObj.ClearPushedVelocity();
+	SetPrivateCameraView( NULL, true ); //ff1.3 - enable weapon particles
+
+	const idVec3 &teleportPos = exitEnt->GetPhysics()->GetOrigin();
+	const idAngles &teleportAngles = exitEnt->GetPhysics()->GetAxis().ToAngles();
+
+	if( currentRiddenAI ){
+		currentRiddenAI->Teleport(teleportPos, teleportAngles, exitEnt);
+	} else if( currentVehicle ){
+		currentVehicle->Teleport(teleportPos, teleportAngles, exitEnt);
+	} else {
+		// setup origin and push according to the exit target
+		SetOrigin( teleportPos + idVec3( 0, 0, CM_CLIP_EPSILON ) );
+		SetViewAngles( teleportAngles );
+		physicsObj.SetLinearVelocity( exitEnt->GetPhysics()->GetAxis()[ 0 ] * pushVel );
+		physicsObj.ClearPushedVelocity();
+
+		// clear the ik heights so model doesn't appear in the wrong place
+		walkIK.EnableAll();
+
+		UpdateVisuals();
+
+		if ( teleportKiller != -1 ) {
+			// we got killed while being teleported
+			Damage( gameLocal.entities[ teleportKiller ], gameLocal.entities[ teleportKiller ], vec3_origin, "damage_telefrag", 1.0f, INVALID_JOINT );
+			teleportKiller = -1;
+		} else {
+			// kill anything that would have waited at teleport exit
+			gameLocal.KillBox( this );
+		}
+	}
+
 	// teleport fx
 	playerView.Flash( colorWhite, 120 );
 
-	// clear the ik heights so model doesn't appear in the wrong place
-	walkIK.EnableAll();
-
-	UpdateVisuals();
-
 	StartSound( "snd_teleport_exit", SND_CHANNEL_ANY, 0, false, NULL );
 
-	if ( teleportKiller != -1 ) {
-		// we got killed while being teleported
-		Damage( gameLocal.entities[ teleportKiller ], gameLocal.entities[ teleportKiller ], vec3_origin, "damage_telefrag", 1.0f, INVALID_JOINT );
-		teleportKiller = -1;
-	} else {
-		// kill anything that would have waited at teleport exit
-		gameLocal.KillBox( this );
-	}
 	teleportEntity = NULL;
 }
 
@@ -9355,6 +12572,9 @@ void idPlayer::ClientPredictionThink( void ) {
 	if ( !gameLocal.inCinematic && weapon.GetEntity() && ( health > 0 ) && !( gameLocal.isMultiplayer && spectating ) ) {
 		UpdateWeapon();
 	}
+
+	UpdateKillsMedals(); //ff1.3
+	UpdateMedalsQueue(); //ff1.3
 
 	UpdateHud();
 
@@ -9794,7 +13014,7 @@ bool idPlayer::ClientReceiveEvent( int event, int time, const idBitMsg &msg ) {
 		case EVENT_PICKUPNAME: {
 			char buf[MAX_EVENT_PARAM_SIZE];
 			msg.ReadString(buf, MAX_EVENT_PARAM_SIZE);
-			inventory.AddPickupName(buf, "", this); //_D3XP
+			inventory.AddPickupName(buf, "", 0, this); //_D3XP
 			return true;
 		}
 #endif
@@ -9883,7 +13103,8 @@ void idPlayer::ShowTip( const char *title, const char *tip, bool autoHide ) {
 	hud->SetStateString( "tiptitle", title );
 	hud->HandleNamedEvent( "tipWindowUp" );
 	if ( autoHide ) {
-		PostEventSec( &EV_Player_HideTip, 5.0f );
+		CancelEvents( &EV_Player_HideTip ); //ivan - make sure there are no other events that could hide this too soon.
+		PostEventSec( &EV_Player_HideTip, 10.0f ); //ivan - was 5.0f
 	}
 	tipUp = true;
 }
@@ -9957,7 +13178,15 @@ idPlayer::RemoveWeapon
 */
 void idPlayer::RemoveWeapon( const char *weap ) {
 	if ( weap && *weap ) {
-		inventory.Drop( spawnArgs, spawnArgs.GetString( weap ), -1 );
+		//ff1.3 start
+		//was: inventory.Drop( spawnArgs, spawnArgs.GetString( weap ), -1 );
+		int weapon_index = inventory.Drop( spawnArgs, spawnArgs.GetString( weap ), -1 );
+
+		//we must reset ammo clip on weapon entity, otherwise they'll be copied back to the inventory while the weapon is lowering
+		if ( weapon.GetEntity() && weapon_index == currentWeapon ) {
+			weapon.GetEntity()->ResetAmmoClip();
+		}
+		//ff1.3 end
 	}
 }
 
@@ -10116,3 +13345,426 @@ void idPlayer::FreeModelDef( void ) {
 }
 
 #endif
+
+//ff1.3 start
+
+/*
+===============
+idPlayer::Event_HudEvent
+==============
+*/
+void idPlayer::Event_HudEvent( int guiType, const char* name ) {
+	idUserInterface * gui = GetGuiByType(guiType);
+	if ( gui ) {
+		gui->HandleNamedEvent( name );
+	}
+}
+
+/*
+===============
+idPlayer::Event_SetHudParm
+==============
+*/
+void idPlayer::Event_SetHudParm(int guiType, const char *key, const char *val ) {
+	idUserInterface * gui = GetGuiByType(guiType);
+	if ( gui ) {
+		gui->SetStateString( key, val );
+	}
+}
+
+/*
+===============
+idPlayer::Event_SetHudFloat
+==============
+*/
+void idPlayer::Event_SetHudFloat(int guiType, const char *key, float val ) {
+	idUserInterface * gui = GetGuiByType(guiType);
+	if ( gui ) {
+		gui->SetStateString( key, va( "%f", val ) );
+	}
+}
+
+/*
+===============
+idPlayer::Event_GetHudParm
+==============
+*/
+void idPlayer::Event_GetHudParm(int guiType, const char *key) {
+	idUserInterface * gui = GetGuiByType(guiType);
+	idThread::ReturnString( gui ? gui->GetStateString(key) : "" );
+}
+
+/*
+===============
+idPlayer::Event_GetHudFloat
+==============
+*/
+void idPlayer::Event_GetHudFloat(int guiType, const char *key) {
+	idUserInterface * gui = GetGuiByType(guiType);
+	idThread::ReturnFloat( gui ? gui->GetStateFloat(key) : 0.0f );
+}
+
+
+/*
+===============
+idPlayer::GetGuiByType
+==============
+*/
+idUserInterface * idPlayer::GetGuiByType(int guiType) {
+	switch( guiType ) {
+		case GUI_CURSOR: {
+			return cursor;
+		}
+		case GUI_HUD: {
+			return hud;
+		}
+		case GUI_INFO: {
+			return infoGui;
+		}
+	}
+	return NULL;
+}
+
+/*
+===============
+idPlayer::Event_ForceUpdateNpcStatus
+==============
+*/
+void idPlayer::Event_ForceUpdateNpcStatus( void ) {
+	if ( focusCharacter && hud ) {
+		if ( focusCharacter->spawnArgs.GetBool( "showStatus", "0" ) ) {
+			hud->SetStateString( "npc", "Status:" );
+			hud->SetStateString( "npc_action", focusCharacter->spawnArgs.GetString( "shownState", "Inactive" ) );
+		}
+	}
+}
+
+/*
+===============
+idPlayer::SecretFound
+==============
+*/
+void idPlayer::SecretFound( void ) {
+	GiveMedal( MEDAL_SECRET );
+}
+
+/*
+===============
+idPlayer::ShowWeaponOverview
+===============
+*/
+void idPlayer::ShowWeaponOverview( void ) {
+	if ( hud && ff_showWeaponOverview.GetBool() ) {
+		hud->HandleNamedEvent( "weaponScroll" );
+	}
+}
+
+/*
+=================
+idPlayer::Event_SetStamina
+=================
+*/
+void idPlayer::Event_SetStamina( int stamina ) {
+	staminaHelltime = stamina;
+}
+
+/*
+=================
+idPlayer::Event_GetStamina
+=================
+*/
+void idPlayer::Event_GetStamina( void ) {
+	idThread::ReturnInt( staminaHelltime );
+}
+
+/*
+=================
+idPlayer::Event_EnableStamina
+=================
+*/
+void idPlayer::Event_EnableStamina( int on ) {
+	staminaEnabled = ( on ) ? true : false;
+}
+
+/*
+=================
+idPlayer::Event_EnableMedals
+=================
+*/
+void idPlayer::Event_EnableMedals( int on ) {
+	medalsEnabled = ( on ) ? true : false;
+}
+
+/*
+===============
+idPlayer::UpdHudAmmoCurrentWeapon
+==============
+*/
+void idPlayer::UpdHudAmmoCurrentWeapon( ammo_t type, int ammoinclip ) { //ff1.1 - called from the current weapon
+	if ( currentWeapon < 0 ) {
+		return;
+	}
+	if ( hud ) {
+
+		//fix start: update the OTHER shotgun
+		if (currentWeapon == 4) { //quick fix for shotguns - TODO: do this in a better way
+			hud->SetStateInt( "ammo_weapon5" , (inventory.ammo[(int) type] + inventory.clip[5] ) );
+		} else if (currentWeapon == 5) { //quick fix for shotguns - TODO: do this in a better way
+			hud->SetStateInt( "ammo_weapon4" , (inventory.ammo[(int) type] + inventory.clip[4] ) );
+		}
+		/*
+		if (currentWeapon == weapon_skull) { //quick fix for skulls
+			hud->SetStateInt( "normal_skull_ammo" , (inventory.ammo[(int) type] - inventory.pw_ammo[currentWeapon] ) );
+		}
+		//fix end
+		*/
+
+		//gameLocal.Printf("ammo_weapon%d\n", currentWeapon);
+		hud->SetStateInt( va( "ammo_weapon%d", currentWeapon ), (inventory.ammo[(int) type] + ammoinclip ) );
+		hud->SetStateInt( va( "pw_ammo_weapon%d", currentWeapon ), (inventory.pw_ammo[currentWeapon] ) );
+	}
+}
+
+/*
+===============
+idPlayer::GetPwAmmoCurrentWeapon
+==============
+
+int idPlayer::GetPwAmmoCurrentWeapon( void ) { //ff1.1 - called from the current weapon
+	if ( currentWeapon < 0 ) { return 0; }
+	return inventory.pw_ammo[currentWeapon];
+}
+*/
+/*
+===============
+idPlayer::UsePwAmmoCurrentWeapon
+==============
+
+void idPlayer::UsePwAmmoCurrentWeapon( int amount ) { //ff1.1 - called from the current weapon
+	if ( currentWeapon < 0 ) { return; }
+	inventory.pw_ammo[currentWeapon] -= amount;
+	if (inventory.pw_ammo[currentWeapon] < 0) {
+		inventory.pw_ammo[currentWeapon] = 0;
+	}
+}
+*/
+
+/*
+===============
+idPlayer::AddPwAmmoWeapon
+==============
+*/
+void idPlayer::AddPwAmmoWeapon( int weaponNum, int amount ) { //ff1.3
+	inventory.AddPwAmmo(weaponNum, amount);
+	if ( hud ) {
+		hud->SetStateInt( va( "pw_ammo_weapon%d", weaponNum ), (inventory.HasPwAmmo(weaponNum) ) );
+	}
+}
+
+/*
+===============
+idPlayer::UpdateEveryAmmoOnHud
+==============
+*/
+void idPlayer::UpdateEveryAmmoOnHud( void ) { //ff1.1 - done at map start and on ammoPulse
+	const char *weap;
+	int w;
+	int ammoType;
+
+	if ( !hud ){
+		return;
+	}
+
+	for( w = 0; w < MAX_WEAPONS; w++ ) {
+		weap = spawnArgs.GetString( va( "def_weapon%d", w ) );
+		if ( !weap[ 0 ] ) {
+			continue;
+		}
+
+		//get ammo type
+		ammoType = (int) inventory.AmmoIndexForWeaponClass( weap, NULL );
+		if ( ammoType == 0 ) {
+			continue;
+		}
+
+		//upd hud
+		//gameLocal.Printf("ammo_val: %d\n",temp_res);
+		if ( w == weapon_skull ) { //fix for skulls weapon
+			int skullSpecialAmmoTotal = 0;
+			for( int i = 0; i < MAX_SKULL_MODES; i++ ) {
+				hud->SetStateInt( va( "special_skull_ammo%d", i ), inventory.skullSpecialAmmo[i] );
+				skullSpecialAmmoTotal += inventory.skullSpecialAmmo[i];
+			}
+			hud->SetStateInt( "default_skull_ammo", inventory.ammo[ammoType] - skullSpecialAmmoTotal );
+			//gameLocal.Printf("default_skull_ammo: %d\n", inventory.ammo[ammoType] - skullSpecialAmmoTotal);
+		}
+
+		hud->SetStateInt( va( "ammo_weapon%d",w ), (inventory.clip[w] > 0) ? inventory.clip[w] + inventory.ammo[ammoType] : inventory.ammo[ammoType] );
+		hud->SetStateInt( va( "pw_ammo_weapon%d",w ), inventory.pw_ammo[w] );
+	}
+}
+
+/*
+================
+idPlayer::GetGuiCoordinates
+================
+*/
+void idPlayer::GetGuiCoordinates( idEntity* target, idVec2 &guiPos ) {
+	idVec3 ndc;
+	idVec3 targetPos;
+
+	if ( target != NULL ) {
+		if ( target->IsType( idActor::Type ) ) {
+			targetPos = static_cast<idActor *>(target)->GetEyePosition();
+			//targetPos.z -= 12.0f; //same logic as guided proj
+		} else {
+			targetPos = target->GetPhysics()->GetAbsBounds().GetCenter();
+		}
+		if ( CheckFOV( targetPos, (float)cos( DEG2RAD( CalcFov(false) /** 0.5f*/ ) ) ) ) {
+			renderSystem->GlobalToNormalizedDeviceCoordinates( targetPos, ndc );
+			guiPos.x = idMath::ClampFloat( 0.0f, 640.0f, ( ndc.x * 0.5 + 0.5 ) * 640.0f );
+			guiPos.y = idMath::ClampFloat( 0.0f, 480.0f, 480.0f - ( ndc.y * 0.5 + 0.5 ) * 480.0f );
+		} else { //out of fov
+			guiPos.x = -320.0f;
+			guiPos.y = -240.0f;
+		}
+	} else { //centered by default
+		guiPos.x = 320.0f;
+		guiPos.y = 240.0f;
+	}
+	//gameLocal.Printf( "Lock pos %s\n", guiPos.ToString() );
+}
+
+/*
+================
+idPlayer::UpdateLockCursor
+================
+*/
+void idPlayer::UpdateLockCursor( idEntity* target ) {
+	if ( cursor != NULL ) {
+		idVec2 guiPos;
+		GetGuiCoordinates(target, guiPos);
+		cursor->SetStateInt( "lock_y", (int) guiPos.y );
+		cursor->SetStateInt( "lock_x", (int) guiPos.x );
+	}
+}
+
+/*
+================
+idPlayer::Event_StartRiding
+================
+
+void idPlayer::Event_StartRiding( idEntity* aiEnt ){
+	//gameLocal.Printf("idPlayer::Event_StartRiding\n");
+	if ( aiEnt && aiEnt->IsType( idAI_Rideable::Type ) ) {
+		EnterAI( static_cast< idAI_Rideable * >( aiEnt ) );
+		//static_cast< idAI_Rideable * >( aiEnt )->PreStartRiding( this );
+	}
+}
+*/
+/*
+================
+idPlayer::Event_StopRiding
+================
+
+void idPlayer::Event_StopRiding( void ){
+	if ( currentRiddenAI ) {
+		currentRiddenAI->PreStopRiding();
+	}
+}
+*/
+
+/*
+================
+idPlayer::Event_IsOnVehicle
+================
+*/
+void idPlayer::Event_IsOnVehicle( void ) {
+	idThread::ReturnInt( (currentVehicle ? 1 : 0));
+}
+
+/*
+================
+idPlayer::Event_IsOnPossession
+================
+*/
+void idPlayer::Event_IsOnPossession( void ) {
+	idThread::ReturnInt( (currentRiddenAI ? 1 : 0));
+}
+
+/*
+================
+idPlayer::Event_GetAlliesDistanceOffset
+================
+*/
+void idPlayer::Event_GetAlliesDistanceOffset( void ) {
+	if ( currentRiddenAI ) {
+		const idBounds &myBounds = GetPhysics()->GetBounds();
+		const idBounds &aiBounds = currentRiddenAI->GetPhysics()->GetBounds();
+		idThread::ReturnFloat( Max( 0.0f, aiBounds[1][0] - myBounds[1][0] ) ); //NOTE: use only max X. This relies on the fact that BBox is symmetrical for AI and player.
+	} else {
+		idThread::ReturnFloat( 0.0f );
+	}
+}
+
+/*
+=====================
+idActor::CheckFOV
+=====================
+*/
+bool idPlayer::CheckFOV( const idVec3 &pos, float targetFovDot ) const { //ff1.3
+	//float targetFovDot = (float)cos( DEG2RAD( CalcFov(false) /** 0.5f*/ ) );
+	if ( targetFovDot == 1.0f ) {
+		return true;
+	}
+
+	float	dot;
+	idVec3	delta;
+
+	delta = pos - renderView->vieworg; //GetEyePosition();
+
+	// get our gravity normal
+	const idVec3 &gravityDir = GetPhysics()->GetGravityNormal();
+
+	// infinite vertical vision, so project it onto our orientation plane
+	delta -= gravityDir * ( gravityDir * delta );
+
+	delta.Normalize();
+	dot = renderView->viewaxis[ 0 ] * delta;
+
+	return ( dot >= targetFovDot );
+}
+
+/*
+================
+idPlayer::ComboCallback
+================
+*/
+void idPlayer::ComboCallback( idProjectile* comboProj ){
+	ammo_t comboAmmoType = inventory.AmmoIndexForAmmoClass( comboProj->spawnArgs.GetString("combo_ammoType")  );
+	if ( comboAmmoType ) {
+		inventory.UseAvailAmmo(comboAmmoType, comboProj->spawnArgs.GetInt("combo_ammoAmount", "1"));
+		UpdHudAmmoCurrentWeapon(comboAmmoType, 0);
+	}
+}
+
+/*
+===============
+idPlayer::PossessionProjectileHitCallback
+===============
+*/
+void idPlayer::PossessionProjectileHitCallback( idProjectile* possessionProj ) {
+	inventory.UsePwAmmo( weapon_possession, 1 );
+}
+
+
+/*
+================
+idPlayer::AnyFireButtonPressed
+================
+*/
+bool idPlayer::AnyFireButtonPressed( void ){
+	return ( usercmd.buttons & BUTTON_ATTACK || usercmd.buttons & BUTTON_5 );
+}
+
+//ff1.3 end

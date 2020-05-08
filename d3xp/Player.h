@@ -50,6 +50,7 @@ class idFuncMountedObject;
 ===============================================================================
 */
 
+
 extern const idEventDef EV_Player_GetButtons;
 extern const idEventDef EV_Player_GetMove;
 extern const idEventDef EV_Player_GetViewAngles;
@@ -58,6 +59,10 @@ extern const idEventDef EV_Player_DisableWeapon;
 extern const idEventDef EV_Player_ExitTeleporter;
 extern const idEventDef EV_Player_SelectWeapon;
 extern const idEventDef EV_SpectatorTouch;
+//ff1.3 start
+extern const idEventDef EV_Player_ShowStats;
+extern const idEventDef EV_Player_HideStats;
+//ff1.3 end
 
 const float THIRD_PERSON_FOCUS_DISTANCE	= 512.0f;
 const int	LAND_DEFLECT_TIME = 150;
@@ -71,11 +76,18 @@ const int MAX_WEAPONS = 32;
 const int MAX_WEAPONS = 16;
 #endif
 
+//ff1.3 start
+const int HELLTIME_STAMINA_MAX	= 100;
+const int MASSACRE_KILLS		= 10;
+const int MASSACRE_TIME_DELTA	= 20000; //20 seconds
+const int NUM_HIT_COUNT_GROUP_IDS = 8;
+//ff1.3 end
+
 const int DEAD_HEARTRATE = 0;			// fall to as you die
 const int LOWHEALTH_HEARTRATE_ADJ = 20; //
 const int DYING_HEARTRATE = 30;			// used for volumen calc when dying/dead
 const int BASE_HEARTRATE = 70;			// default
-const int ZEROSTAMINA_HEARTRATE = 115;  // no stamina
+//const int ZEROSTAMINA_HEARTRATE = 115;  // no stamina
 const int MAX_HEARTRATE = 130;			// maximum
 const int ZERO_VOLUME = -40;			// volume at zero
 const int DMG_VOLUME = 5;				// volume when taking damage
@@ -89,6 +101,7 @@ extern const int ASYNC_PLAYER_INV_CLIP_BITS;
 struct idItemInfo {
 	idStr name;
 	idStr icon;
+	int amount; //ff1.3
 };
 
 struct idObjectiveInfo {
@@ -134,6 +147,14 @@ enum {
 	INFLUENCE_LEVEL3,			// slow player movement
 };
 
+//skull weapon modes //ff1.3
+enum {
+	SKULL_MODE_NORMAL = -1,
+	SKULL_MODE_BERSERK,
+	SKULL_MODE_INVULN,
+	MAX_SKULL_MODES
+};
+
 #ifdef _D3XP
 typedef struct {
 	int ammo;
@@ -144,8 +165,41 @@ typedef struct {
 typedef struct {
 	char		name[64];
 	idList<int>	toggleList;
+	//int			lastSelected; //ff1.3
 } WeaponToggle_t;
 #endif
+
+//ff1.3 start
+
+struct idGameCoverInfo {
+	idStr	defName;
+//	int		amount;
+};
+
+// guis
+enum {
+	GUI_CURSOR = 0,
+	GUI_HUD,
+	GUI_INFO
+};
+
+// medals
+enum {
+	MEDAL_SKILLSHOT = 0,
+	MEDAL_DOUBLEKILL,
+	MEDAL_MULTIKILL,
+	MEDAL_CHAINKILL,
+	MEDAL_MASSACRE,
+	MEDAL_100SOULS,
+	MEDAL_SECRET
+};
+
+//hud pulse flags
+const int HUD_PULSE_SOUL				= BIT(0);
+const int HUD_PULSE_HEALTH_ADDER		= BIT(1);
+const int HUD_PULSE_HEALTH_ICON			= BIT(2);
+
+//ff1.3 end
 
 class idInventory {
 public:
@@ -156,11 +210,23 @@ public:
 	int						maxarmor;
 	int						ammo[ AMMO_NUMTYPES ];
 	int						clip[ MAX_WEAPONS ];
+	int						pw_ammo[ MAX_WEAPONS ]; //ff1.1
+	//ff1.3 start
+	int						skullSpecialAmmo[ MAX_SKULL_MODES ];
+	int						skullMode;
+	ammo_t					skullAmmoType;
+	idList<idGameCoverInfo>	gameCovers;
+	//ff1.3 end
+
 	int						powerupEndTime[ MAX_POWERUPS ];
 
+	//ff1.3 start - rechargeAmmo removed
+	/* was:
 #ifdef _D3XP
 	RechargeAmmo_t			rechargeAmmo[ AMMO_NUMTYPES ];
 #endif
+	*/
+	//ff1.3 end
 
 	// mp
 	int						ammoPredictTime;
@@ -204,17 +270,34 @@ public:
 	void					GetPersistantData( idDict &dict );
 	void					RestoreInventory( idPlayer *owner, const idDict &dict );
 	bool					Give( idPlayer *owner, const idDict &spawnArgs, const char *statname, const char *value, int *idealWeapon, bool updateHud );
-	void					Drop( const idDict &spawnArgs, const char *weapon_classname, int weapon_index );
+	int /*ff1.3:was void*/	Drop( const idDict &spawnArgs, const char *weapon_classname, int weapon_index );
 	ammo_t					AmmoIndexForAmmoClass( const char *ammo_classname ) const;
 	int						MaxAmmoForAmmoClass( idPlayer *owner, const char *ammo_classname ) const;
+	int						MaxPwAmmoForWeaponName( idPlayer *owner, const char *weapon_name ) const; //ff1.3
+	const char *			PwPickupNameForWeaponName( const char *weapon_name ) const; //ff1.3
 	int						WeaponIndexForAmmoClass( const idDict & spawnArgs, const char *ammo_classname ) const;
 	ammo_t					AmmoIndexForWeaponClass( const char *weapon_classname, int *ammoRequired );
 	const char *			AmmoPickupNameForIndex( ammo_t ammonum ) const;
-	void					AddPickupName( const char *name, const char *icon, idPlayer* owner ); //_D3XP
+	void					AddPickupName( const char *name, const char *icon, int amount, idPlayer* owner ); //_D3XP
 
 	int						HasAmmo( ammo_t type, int amount );
 	bool					UseAmmo( ammo_t type, int amount );
 	int						HasAmmo( const char *weapon_classname, bool includeClip = false, idPlayer* owner = NULL );			// _D3XP
+
+	//ff1.3 start
+	int						HasPwAmmo( int weaponIndex );
+	bool					UsePwAmmo( int weaponIndex, int amount );
+	void					AddPwAmmo( int weaponIndex, int amount );
+
+	bool					UseAvailAmmo( ammo_t type, int amount );
+
+	int						HasSkullAmmo( int skullMode );
+	bool					UseSkullAmmo( int skullMode, int amount );
+	void					SetSkullMode( int mode );
+	int						GetSkullMode( void );
+
+	void					Init( void );
+	//ff1.3 end
 
 #ifdef _D3XP
 	bool					HasEmptyClipCannotRefill(const char *weapon_classname, idPlayer* owner);
@@ -227,13 +310,28 @@ public:
 	int						onePickupTime;
 	idList<idItemInfo>		pickupItemNames;
 	idList<idObjectiveInfo>	objectiveNames;
+	//ff1.3 start
+	idItemInfo				lastShownItem;
+	int						lastShownItemTime;
+	idStr					lastFullItemName;
+	//ff1.3 end
 
 #ifdef _D3XP
-	void					InitRechargeAmmo(idPlayer *owner);
-	void					RechargeAmmo(idPlayer *owner);
+	//ff1.3 start - recharge ammo removed
+	//void					InitRechargeAmmo(idPlayer *owner);
+	//void					RechargeAmmo(idPlayer *owner);
+	//ff1.3 end
 	bool					CanGive( idPlayer *owner, const idDict &spawnArgs, const char *statname, const char *value, int *idealWeapon );
 #endif
 };
+
+ID_INLINE void idInventory::SetSkullMode( int mode ) {
+	skullMode = mode; //don't check the value here
+}
+
+ID_INLINE int idInventory::GetSkullMode( void ) {
+	return skullMode;
+}
 
 typedef struct {
 	int		time;
@@ -298,6 +396,7 @@ public:
 	idScriptBool			AI_TELEPORT;
 	idScriptBool			AI_TURN_LEFT;
 	idScriptBool			AI_TURN_RIGHT;
+	idScriptBool			AI_DODGE;
 
 	// inventory
 	idInventory				inventory;
@@ -307,14 +406,26 @@ public:
 	idUserInterface *		objectiveSystem;
 	bool					objectiveSystemOpen;
 
-	int						weapon_soulcube;
+	//ff1.3 start
+	idUserInterface *		infoGui;
+	//bool					infoGuiOpen;
+
+	int						weapon_possession;
+	int						weapon_soul2cube;
+	int						weapon_skull;
 	int						weapon_pda;
+	int						weapon_shockrifle;
+	//int						weapon_soulcube;
+	//ff1.3 end
+
 	int						weapon_fists;
 #ifdef _D3XP
+	/*
 	int						weapon_bloodstone;
 	int						weapon_bloodstone_active1;
 	int						weapon_bloodstone_active2;
 	int						weapon_bloodstone_active3;
+	*/
 	bool					harvest_lock;
 #endif
 
@@ -326,16 +437,25 @@ public:
 	int						deathClearContentsTime;
 	bool					doingDeathSkin;
 	int						lastArmorPulse;		// lastDmgTime if we had armor at time of hit
-	float					stamina;
+
+	//ff1.3 start
+	//was: float					stamina;
+	int						staminaHelltime;
+	//ff1.3 end
+
 	float					healthPool;			// amount of health to give over time
 	int						nextHealthPulse;
 	bool					healthPulse;
-	bool					healthTake;
-	int						nextHealthTake;
+	//bool					healthTake;
+	//int						nextHealthTake;
 
 
 	bool					hiddenWeapon;		// if the weapon is hidden ( in noWeapons maps )
-	idEntityPtr<idProjectile> soulCubeProjectile;
+	//idEntityPtr<idProjectile> soulCubeProjectile;
+	//idEntityPtr<idProjectile> possessionProjectile;
+	idEntityPtr<idPainkillerProjectile> painKillerProjectile;
+	idEntityPtr<idRemoteGrenadeProjectile> remoteGrenadeProjectile;
+
 
 	// mp stuff
 #ifdef _D3XP
@@ -470,8 +590,10 @@ public:
 	void					DrawHUD( idUserInterface *hud );
 
 	void					WeaponFireFeedback( const idDict *weaponDef );
+	void					WeaponSecFireFeedback( const idDict *weaponDef ); //ff1.3
 
 	float					DefaultFov( void ) const;
+	float					DefaultZoomFov( void ) const { return quickZoomFov; }; //ff1.3
 	float					CalcFov( bool honorZoom );
 	void					CalculateViewWeaponPos( idVec3 &origin, idMat3 &axis );
 	idVec3					GetEyePosition( void ) const;
@@ -489,6 +611,7 @@ public:
 	void					RemoveInventoryItem( const char *name );
 	idDict *				FindInventoryItem( const char *name );
 
+	void					GiveGameCover( const char *coverDefName ); //ff1.3
 	void					GivePDA( const char *pdaName, idDict *item );
 	void					GiveVideo( const char *videoName, idDict *item );
 	void					GiveEmail( const char *emailName );
@@ -510,7 +633,7 @@ public:
 	void					DropWeapon( bool died ) ;
 	void					StealWeapon( idPlayer *player );
 	void					AddProjectilesFired( int count );
-	void					AddProjectileHits( int count );
+	void					AddProjectileHits( int count, int hitCountGroupId ); //ff1.3 - hitCountGroupId added
 	void					SetLastHitTime( int time );
 	void					LowerWeapon( void );
 	void					RaiseWeapon( void );
@@ -518,9 +641,26 @@ public:
 	void					WeaponRisingCallback( void );
 	void					RemoveWeapon( const char *weap );
 	bool					CanShowWeaponViewmodel( void ) const;
+	void					UpdHudAmmoCurrentWeapon( ammo_t type, int ammoinclip ); //ff1.1
+	void					UpdateEveryAmmoOnHud( void ); //ff1.1
+	void					GetGuiCoordinates( idEntity* target, idVec2 &guiPos ); //ff1.3
+	void					UpdateLockCursor( idEntity* target ); //ff1.3
+	idEntity				*GetAimTarget( float range ); //ff1.3
 
-	void					AddAIKill( void );
-	void					SetSoulCubeProjectile( idProjectile *projectile );
+
+	void					AddAIKill( idActor *victim, idEntity *inflictor, const idDict *damageDef );
+
+	//ff1.3 start
+	//void					SetSoulCubeProjectile( idProjectile *projectile ); //ff1.3 - removed
+	void					SetPainKillerProjectile( idPainkillerProjectile *projectile );
+	idPainkillerProjectile*	GetPainKillerProjectile( void );
+	void					PainKillerReturnedCallback( bool hit );
+	void					GetPainKillerBeamData( idVec3 &returnPos, bool &beamEnabled );
+
+	void					SetRemoteGrenadeProjectile( idRemoteGrenadeProjectile *projectile );
+	idRemoteGrenadeProjectile*	GetRemoteGrenadeProjectile( void );
+
+	//ff1.3 end
 
 	void					AdjustHeartRate( int target, float timeInSecs, float delay, bool force );
 	void					SetCurrentHeartRate( void );
@@ -528,6 +668,7 @@ public:
 	void					UpdateAir( void );
 
 #ifdef _D3XP
+	int						ComputePowerupHudPct( int powerup, int maxHudDuration ); //ff1.3
 	void					UpdatePowerupHud();
 #endif
 
@@ -546,7 +687,7 @@ public:
 	void					SetInfluenceView( const char *mtr, const char *skinname, float radius, idEntity *ent );
 	void					SetInfluenceLevel( int level );
 	int						GetInfluenceLevel( void ) { return influenceActive; };
-	void					SetPrivateCameraView( idCamera *camView );
+	void					SetPrivateCameraView( idCamera *camView, bool weaponEnterCinematic = false ); //ff1.3 - weaponEnterCinematic added
 	idCamera *				GetPrivateCameraView( void ) const { return privateCameraView; }
 	void					StartFxFov( float duration  );
 	void					UpdateHudWeapon( bool flashWeapon = true );
@@ -577,6 +718,17 @@ public:
 	bool					IsRespawning( void );
 	bool					IsInTeleport( void );
 
+#ifdef _DENTONMOD
+	//ff1.3 start
+	//void					UpdateInfoStats( idUserInterface *info );
+	void					EnableWeaponZoom( bool advancedMode );
+	void					DisableWeaponZoom();
+	void					EnableBloom( bool on );
+	//ff1.3 end
+	void					SetProjectileType( int type );
+	int						GetProjectileType( void );
+#endif
+
 	idEntity				*GetInfluenceEntity( void ) { return influenceEntity; };
 	const idMaterial		*GetInfluenceMaterial( void ) { return influenceMaterial; };
 	float					GetInfluenceRadius( void ) { return influenceRadius; };
@@ -606,8 +758,7 @@ public:
 
 	bool					CanGive( const char *statname, const char *value );
 
-	void					StopHelltime( bool quick = true );
-	void					PlayHelltimeStopSound();
+	//void					StopHelltime( bool quick = true ); //ff1.3 - commented out
 #endif
 
 #ifdef CTF
@@ -618,6 +769,28 @@ public:
 
 	bool					SelfSmooth( void );
 	void					SetSelfSmooth( bool b );
+
+	//ff1.3 start
+	bool					UseThirdPersonCamera( void ); //ivan
+	void					EnterVehicle( idAFEntity_Vehicle *vehicle );
+	void					ExitVehicle( void );
+	//idAFEntity_Vehicle *	GetCurrentVehicle( void );
+	idAI_Rideable *			GetCurrentRiddenAI( void );
+
+	bool					CanEnterAI( void );
+	void					EnterAI( idAI_Rideable* aiEnt );
+	void					ExitAI( bool killed );
+
+	void					ComboCallback( idProjectile* comboProj );
+	void					PossessionProjectileHitCallback( idProjectile* possessionProj );
+	void					SecretFound( void );
+	void					ShowWeaponOverview( void );
+	//void					SaveStats( void );
+	//idVec3					GetAimPos( idEntity* ignoreEnt );
+	//idAngles				GetAimAngles( const idVec3 &firePos, idEntity* ignoreEnt );
+	bool					IsAdvancedWeaponZooming( void ) { return advancedWeaponZooming; };
+	bool					AnyFireButtonPressed( void );
+	//ff1.3 end
 
 private:
 	jointHandle_t			hipJoint;
@@ -649,18 +822,23 @@ private:
 	int						previousWeapon;
 	int						weaponSwitchTime;
 	bool					weaponEnabled;
+	bool					weaponEnabledOnRideExit;
 	bool					showWeaponViewModel;
 
 	const idDeclSkin *		skin;
 	const idDeclSkin *		powerUpSkin;
 	idStr					baseSkinName;
 
+	/* ff1.3 - moved to stats
 	int						numProjectilesFired;	// number of projectiles fired
 	int						numProjectileHits;		// number of hits on mobs
+	*/
 
+	/*
 	bool					airless;
 	int						airTics;				// set to pm_airTics at start, drops in vacuum
 	int						lastAirDamage;
+	*/
 
 	bool					gibDeath;
 	bool					gibsLaunched;
@@ -689,10 +867,46 @@ private:
 	idEntity *				focusGUIent;
 	idUserInterface *		focusUI;				// focusGUIent->renderEntity.gui, gui2, or gui3
 	idAI *					focusCharacter;
+	idGameCover *			focusGameCover;
 	int						talkCursor;				// show the state of the focusCharacter (0 == can't talk/dead, 1 == ready to talk, 2 == busy talking)
 	int						focusTime;
 	idAFEntity_Vehicle *	focusVehicle;
 	idUserInterface *		cursor;
+
+    //ff1.3 start
+    idAI_Rideable *			currentRiddenAI;
+    //idAFEntity_Vehicle *	currentVehicle;
+
+    bool					staminaEnabled;
+    int						nextStaminaDrop;
+    int						nextHealthDrop;
+    //int						staminaAdded;
+    //int						nextStaminaAddedReset;
+
+    int						healthAdded;
+    int						nextHealthAddedReset;
+
+    int						lastKillTimes[MASSACRE_KILLS];
+    int						tempKillCount;
+    int						nextKillUpdate;
+
+    playerStats_t			playerStats;
+
+    int						nextVehicleTime;
+    int						advancedWeaponZoomTime;
+    bool					advancedWeaponZooming;
+    float					quickZoomFov;
+    int						hudPulseFlags;
+    int						hitCountGroupIds[NUM_HIT_COUNT_GROUP_IDS];
+    int						nextHitCountGroupIndex;
+    int						lastEscPressedTime;
+    int						skipCinematicTipStartTime;
+    int						selectedGameCoverIndex;
+    int						selectedStatsIndex;
+    int						maxMapStatsIndex;
+    int						currentStatsIndex;
+    int						campaignSoulsCount;
+    //ff1.3 end
 
 	// full screen guis track mouse movements directly
 	int						oldMouseX;
@@ -715,10 +929,11 @@ private:
 
 #ifdef _D3XP
 	idHashTable<WeaponToggle_t>	weaponToggles;
-
+	/*
 	int						hudPowerup;
 	int						lastHudPowerup;
 	int						hudPowerupDuration;
+	*/
 #endif
 
 	// mp
@@ -736,6 +951,24 @@ private:
 	bool					MPAimHighlight;
 	bool					isTelefragged;			// proper obituaries
 
+	//ff1.3 start - stats
+	idList<int>				medalsQueue;
+	int						nextMedalTime;
+	bool					medalsEnabled;
+	bool					inGameStatsVisible;
+	bool					inGameStatsCurrentMap;
+	int						nextInvulnWarningTime;
+	//ff1.3 end
+
+#ifdef _DENTONMOD
+	struct weaponZoom_s {
+		bool				oldZoomStatus	: 1;
+		bool				startZoom		: 1;
+		bool				quickMode		: 1; //ff1.3
+	} weaponZoom;
+	byte					projectileType[ MAX_WEAPONS ];
+#endif
+
 	idPlayerIcon			playerIcon;
 
 	bool					selfSmooth;
@@ -743,7 +976,9 @@ private:
 	void					LookAtKiller( idEntity *inflictor, idEntity *attacker );
 
 	void					StopFiring( void );
-	void					FireWeapon( void );
+	void					FireWeapon( bool keyTapped ); //ff1.3 parameter added
+	void					WeaponSpecialFunction( bool keyTapped ); //ff1.3
+	void					Weapon_GameCover( void );
 	void					Weapon_Combat( void );
 	void					Weapon_NPC( void );
 	void					Weapon_GUI( void );
@@ -765,6 +1000,10 @@ private:
 	void					SetAASLocation( void );
 	void					Move( void );
 	void					UpdatePowerUps( void );
+	void					AddPwAmmoWeapon( int weaponNum, int amount ); //ff1.3
+	void					GiveMedal( int medalType ); //ff1.3
+	void					UpdateKillsMedals( void ); //ff1.3
+	void					UpdateMedalsQueue( void ); //ff1.3
 	void					UpdateDeathSkin( bool state_hitch );
 	void					ClearPowerup( int i );
 	void					SetSpectateOrigin( void );
@@ -782,7 +1021,34 @@ private:
 	bool					WeaponAvailable( const char* name );
 #endif
 
-	void					UseVehicle( void );
+	//ff1.3 start
+	//void					UseVehicle( void );
+	void					AddExtraHealth( void );
+	void					IncreaseMaxHealth( void );
+	idUserInterface *		GetGuiByType( int guiType );
+	void					UpdatePDAStats( idUserInterface *_gui );
+	void					DisplayCampaignStats( idUserInterface *_gui, playerStats_t &campaignPlayerStats, mapStats_t &campaignStats, campaignInfo_t &campaignInfo, bool completed );
+	void					DisplayMapStats( idUserInterface *_gui, playerStats_t &playerStats, mapStats_t &mapStats, mapInfo_t &mapInfo, bool completed );
+	void					DisplayStats( idUserInterface *_gui, playerStats_t &playerStats, mapStats_t &mapStats, const char *statsTitle, const char *statsImg, bool completed, bool showTotals );
+	//void					UpdateChallanges( idUserInterface *_hud, playerStats_t &playerStats, mapStats_t &mapStats, bool failedIfNotCompleted );
+	bool					FindPersistedStatsIndex( const char *mapName, int &statsIndex );
+	int						CampaignStatsIndex( void );
+	int						FirstFreeStatsIndex( void );
+	void					LoadMapInfoForStatsIndex( int statsIndex, mapInfo_t &mapInfo );
+	void					LoadStatsForStatsIndex( int statsIndex, playerStats_t &playerStats, mapStats_t &mapStats );
+	void					CalculateCampaignStats( playerStats_t &playerStats, mapStats_t &campaignStats );
+
+	void					CommonRidingSetup( idEntity *riddenEnt );
+	void					CommonRidingCleanUp( bool killed );
+	bool					IsRiding();
+	//idProjectile *			LanchPossessionProjectile( idActor *targetEnt );
+
+	void					StartAdvancedWeaponZoom( void );
+	void					StopAdvancedWeaponZoom( void );
+	void					CompleteAdvancedWeaponZoom( void );
+	bool					CheckFOV( const idVec3 &pos, float targetFovDot ) const;
+	void					HideSkipCinematicTip();
+	//ff1.3 end
 
 	void					Event_GetButtons( void );
 	void					Event_GetMove( void );
@@ -803,11 +1069,11 @@ private:
 	void					Event_Gibbed( void );
 
 #ifdef _D3XP //BSM: Event to remove inventory items. Useful with powercells.
-	void					Event_GiveInventoryItem( const char* name );
-	void					Event_RemoveInventoryItem( const char* name );
+	void					Event_GiveInventoryItem( const char *name );
+	void					Event_RemoveInventoryItem( const char *name );
 
 	void					Event_GetIdealWeapon( void );
-	void					Event_WeaponAvailable( const char* name );
+	void					Event_WeaponAvailable( const char *name );
 	void					Event_SetPowerupTime( int powerup, int time );
 	void					Event_IsPowerupActive( int powerup );
 	void					Event_StartWarp();
@@ -815,7 +1081,80 @@ private:
 	void					Event_ToggleBloom( int on );
 	void					Event_SetBloomParms( float speed, float intensity );
 #endif
+	//ff start
+	void					Event_HudEvent( int guiType, const char *name ); //ff1.1
+	void					Event_SetHudParm( int guiType, const char *key, const char *val ); //ff1.1
+	void					Event_SetHudFloat( int guiType, const char *key, float val );
+	void					Event_GetHudParm( int guiType, const char *key );
+	void					Event_GetHudFloat( int guiType, const char *key ); //ff1.1
+	void					Event_ForceUpdateNpcStatus( void ); //ff1.1
+	void					Event_SetStamina( int stamina );
+	void					Event_GetStamina( void );
+	void					Event_EnableStamina( int on );
+	void					Event_EnableMedals( int on );
+	void					Event_IsOnVehicle( void );
+	void					Event_IsOnPossession( void );
+	void					Event_GetAlliesDistanceOffset( void );
+	void					Event_ShowStats( const char *mapName, int showEvent );
+	void					Event_HideStats( void );
+	void					Event_GetAmmoForWeapon( const char *weaponClassName );
+	//ff end
 };
+
+//ff1.3 start
+/*
+ID_INLINE idAFEntity_Vehicle * idPlayer::GetCurrentVehicle( void ) {
+	return currentVehicle;
+}
+*/
+
+ID_INLINE idAI_Rideable * idPlayer::GetCurrentRiddenAI( void ) {
+	return currentRiddenAI;
+}
+
+ID_INLINE void idPlayer::SetPainKillerProjectile( idPainkillerProjectile *projectile ) {
+	painKillerProjectile = projectile;
+}
+
+ID_INLINE idPainkillerProjectile * idPlayer::GetPainKillerProjectile( void ){
+	return painKillerProjectile.GetEntity();
+}
+
+ID_INLINE void idPlayer::SetRemoteGrenadeProjectile( idRemoteGrenadeProjectile *projectile ) {
+	remoteGrenadeProjectile = projectile;
+}
+
+ID_INLINE idRemoteGrenadeProjectile * idPlayer::GetRemoteGrenadeProjectile( void ){
+	return remoteGrenadeProjectile.GetEntity();
+}
+
+#ifdef _DENTONMOD
+
+ID_INLINE bool idPlayer::IsRiding( void ) {
+	return currentVehicle || currentRiddenAI;
+}
+
+ID_INLINE void idPlayer::EnableWeaponZoom( bool quickMode ) {
+	weaponZoom.startZoom = true;
+	weaponZoom.quickMode = quickMode;
+}
+
+
+ID_INLINE void idPlayer::DisableWeaponZoom( void ) {
+	weaponZoom.startZoom = false;
+	//weaponZoom.quickMode = false; //don't interfere with zoom in
+}
+
+ID_INLINE void idPlayer::SetProjectileType( int type ) {
+	projectileType[ currentWeapon ] = type;
+}
+
+ID_INLINE int idPlayer::GetProjectileType( void ) {
+	return projectileType[ currentWeapon ];
+}
+#endif
+
+//ff1.3 end
 
 ID_INLINE bool idPlayer::IsReady( void ) {
 	return ready || forcedReady;

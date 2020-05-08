@@ -265,6 +265,7 @@ idTrigger_Multi::idTrigger_Multi( void ) {
 	nextTriggerTime = 0;
 	removeItem = 0;
 	touchClient = false;
+	touchRideable = false; //ff1.3
 	touchOther = false;
 	triggerFirst = false;
 	triggerWithSelf = false;
@@ -284,6 +285,7 @@ void idTrigger_Multi::Save( idSaveGame *savefile ) const {
 	savefile->WriteString( requires );
 	savefile->WriteInt( removeItem );
 	savefile->WriteBool( touchClient );
+	savefile->WriteBool( touchRideable ); //ff1.3
 	savefile->WriteBool( touchOther );
 	savefile->WriteBool( triggerFirst );
 	savefile->WriteBool( triggerWithSelf );
@@ -303,6 +305,7 @@ void idTrigger_Multi::Restore( idRestoreGame *savefile ) {
 	savefile->ReadString( requires );
 	savefile->ReadInt( removeItem );
 	savefile->ReadBool( touchClient );
+	savefile->ReadBool( touchRideable ); //ff1.3
 	savefile->ReadBool( touchOther );
 	savefile->ReadBool( triggerFirst );
 	savefile->ReadBool( triggerWithSelf );
@@ -343,15 +346,23 @@ void idTrigger_Multi::Spawn( void ) {
 
 	if ( spawnArgs.GetBool( "anyTouch" ) ) {
 		touchClient = true;
+		touchRideable = true; //ff1.3
 		touchOther = true;
 	} else if ( spawnArgs.GetBool( "noTouch" ) ) {
 		touchClient = false;
+		touchRideable = false; //ff1.3
 		touchOther = false;
 	} else if ( spawnArgs.GetBool( "noClient" ) ) {
 		touchClient = false;
+		touchRideable = false; //ff1.3
 		touchOther = true;
+	} else if ( spawnArgs.GetBool( "noRideable" ) ) { //ff1.3
+		touchClient = true;
+		touchRideable = false;
+		touchOther = false;
 	} else {
 		touchClient = true;
+		touchRideable = true; //ff1.3
 		touchOther = false;
 	}
 
@@ -371,7 +382,7 @@ idTrigger_Multi::CheckFacing
 */
 bool idTrigger_Multi::CheckFacing( idEntity *activator ) {
 	if ( spawnArgs.GetBool( "facing" ) ) {
-		if ( !activator->IsType( idPlayer::Type ) ) {
+		if ( !activator->IsType( idPlayer::Type ) ) { //TODO: add support for Rideable and Vehicles?
 			return true;
 		}
 		idPlayer *player = static_cast< idPlayer* >( activator );
@@ -479,7 +490,27 @@ void idTrigger_Multi::Event_Touch( idEntity *other, trace_t *trace ) {
 		if ( static_cast< idPlayer * >( other )->spectating ) {
 			return;
 		}
-	} else if ( !touchOther ) {
+	} else
+	//ff1.3 start
+	if ( other->IsType( idAI_Rideable::Type ) ){
+		if ( !touchRideable || !other->spawnArgs.GetBool("touchTriggers", "1") /* TODO remove this key */ ) {
+			return;
+		}
+		if ( !static_cast< idAI_Rideable * >( other )->GetDriver() ){
+			return;
+		}
+	} else if ( other->IsType( idAFEntity_Vehicle::Type ) ){
+		if ( !touchRideable ) {
+			return;
+		}
+		/*
+		if ( !static_cast< idAFEntity_Vehicle * >( other )->GetDriver() ){
+			return;
+		}
+		*/
+	} else
+	//ff1.3 end
+	if ( !touchOther ) {
 		return;
 	}
 
@@ -1040,6 +1071,121 @@ void idTrigger_Hurt::Event_Toggle( idEntity *activator ) {
 	on = !on;
 }
 
+//ff1.3 start
+/*
+===============================================================================
+
+  idTrigger_Explodable
+	
+===============================================================================
+*/
+
+CLASS_DECLARATION( idTrigger, idTrigger_Explodable)
+	EVENT( EV_Touch,		idTrigger_Explodable::Event_Touch )
+	EVENT( EV_Explode,		idTrigger_Explodable::Event_Explode )
+END_CLASS
+
+
+/*
+================
+idTrigger_Explodable::idTrigger_Explodable
+================
+*/
+idTrigger_Explodable::idTrigger_Explodable( void ) {
+	on = false;
+}
+
+/*
+================
+idTrigger_Explodable::Spawn
+================
+*/
+void idTrigger_Explodable::Spawn( void ) {
+	Enable();
+	on = true;
+	PostEventSec( &EV_Explode, spawnArgs.GetFloat( "fuse", "5" ));
+}
+
+/*
+================
+idTrigger_Explodable::Save
+================
+*/
+void idTrigger_Explodable::Save( idSaveGame *savefile ) const {
+	savefile->WriteBool( on );
+}
+
+/*
+================
+idTrigger_Explodable::Restore
+================
+*/
+void idTrigger_Explodable::Restore( idRestoreGame *savefile ) {
+	savefile->ReadBool( on );
+}
+
+/*
+================
+idTrigger_Explodable::Explode
+================
+*/
+void idTrigger_Explodable::Explode( idEntity *activator ) {
+	on = false;
+	
+	const char *damage;
+	if ( spawnArgs.GetString( "def_damage", "damage_explosion", &damage ) ) {
+		idEntity * owner = GetPhysics()->GetClipModel()->GetOwner();
+		gameLocal.RadiusDamage( GetPhysics()->GetOrigin(), owner, owner, this, this, damage );
+	}
+
+	StartSound( "snd_explode", SND_CHANNEL_ANY, 0, false, NULL );
+
+	idStr explosion;
+	spawnArgs.GetString( "model_explosion", "", explosion );
+	if ( explosion.Length() ) {
+		SetModel( explosion );
+	}
+
+	// Show() calls UpdateVisuals, so we don't need to call it ourselves after setting the shaderParms
+	renderEntity.shaderParms[SHADERPARM_RED]		= 1.0f;
+	renderEntity.shaderParms[SHADERPARM_GREEN]		= 1.0f;
+	renderEntity.shaderParms[SHADERPARM_BLUE]		= 1.0f;
+	renderEntity.shaderParms[SHADERPARM_ALPHA]		= 1.0f;
+	renderEntity.shaderParms[SHADERPARM_TIMEOFFSET] = -MS2SEC( gameLocal.time );
+	renderEntity.shaderParms[SHADERPARM_DIVERSITY]	= 0.0f;
+	Show();
+
+	//ActivateTargets( activator );
+	//CallScript();
+
+	Disable();
+	CancelEvents( &EV_Explode );
+	PostEventMS( &EV_Remove, 2000 );
+}
+
+/*
+================
+idTrigger_Explodable::Event_Explode
+================
+*/
+void idTrigger_Explodable::Event_Explode( void ) {
+	if ( on ) {		
+		Explode(this);
+	}
+}
+
+/*
+================
+idTrigger_Explodable::Event_Touch
+================
+*/
+void idTrigger_Explodable::Event_Touch( idEntity *other, trace_t *trace ) {
+	if ( on && other ) {		
+		Explode(other);
+	}
+}
+
+//ff1.3 end
 
 /*
 ===============================================================================

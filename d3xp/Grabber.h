@@ -69,8 +69,8 @@ private:
 	idEntityPtr<idPlayer>	owner;
 	int						oldUcmdFlags;
 	bool					holdingAF;
-	bool					shakeForceFlip;
-	int						endTime;
+	//bool					shakeForceFlip;		//ff1.3 - removed
+	//int						endTime;		//ff1.3 - removed
 	int						lastFiredTime;
 	int						dragFailTime;
 	int						startDragTime;
@@ -87,7 +87,7 @@ private:
 	void					StartDrag( idEntity *grabEnt, int id );
 	void					StopDrag( bool dropOnly );
 	void					UpdateBeams( void );
-	void					ApplyShake( void );
+	//void					ApplyShake( void );		//ff1.3 - removed
 };
 
 #endif

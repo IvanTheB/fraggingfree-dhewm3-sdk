@@ -67,20 +67,20 @@ const int IMPULSE_12			= 12;			// weap 12
 const int IMPULSE_13			= 13;			// weap reload
 const int IMPULSE_14			= 14;			// weap next
 const int IMPULSE_15			= 15;			// weap prev
-const int IMPULSE_16			= 16;			// <unused>
+const int IMPULSE_16			= 16;			// ff: toggle zoom //was <unused>
 const int IMPULSE_17			= 17;			// ready to play ( toggles ui_ready )
 const int IMPULSE_18			= 18;			// center view
-const int IMPULSE_19			= 19;			// show PDA/INV/MAP
+const int IMPULSE_19			= 19;			// ff show stats OR PDA/INV/MAP
 const int IMPULSE_20			= 20;			// toggle team ( toggles ui_team )
-const int IMPULSE_21			= 21;			// <unused>
+const int IMPULSE_21			= 21;			// ff: toggle stamina_toggler // was <unused>
 const int IMPULSE_22			= 22;			// spectate
-const int IMPULSE_23			= 23;			// <unused>
-const int IMPULSE_24			= 24;			// <unused>
-const int IMPULSE_25			= 25;			// <unused>
-const int IMPULSE_26			= 26;			// <unused>
-const int IMPULSE_27			= 27;			// <unused>
-const int IMPULSE_28			= 28;			// vote yes
-const int IMPULSE_29			= 29;			// vote no
+const int IMPULSE_23			= 23;			// weap 13              // was <unused>
+const int IMPULSE_24			= 24;			// weap 14              // was <unused>
+const int IMPULSE_25			= 25;			// weap 15              // was d3xp used
+const int IMPULSE_26			= 26;			// weap 16              // was <unused>
+const int IMPULSE_27			= 27;			// weap 17              // was <unused>   // was Hack so the chainsaw will work in MP ?
+const int IMPULSE_28			= 28;			// weap 18              // was vote yes
+const int IMPULSE_29			= 29;			// not used             // was vote no
 const int IMPULSE_40			= 40;			// use vehicle
 
 // usercmd_t->flags
@@ -153,7 +153,7 @@ public:
 	virtual const char *GetUserCommandName( int index ) = 0;
 
 	// Continuously modified, never reset. For full screen guis.
-	virtual void		MouseState( int *x, int *y, int *button, bool *down ) = 0;
+	virtual void		MouseState( int *x, int *y, int *button, bool *down ) = 0;	
 
 	// Directly sample a button.
 	virtual int			ButtonState( int key ) = 0;

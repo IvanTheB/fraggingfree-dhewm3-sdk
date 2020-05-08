@@ -31,6 +31,11 @@ If you have questions concerning this license or the applicable additional terms
 
 #include "Entity.h"
 
+//ff1.3 start
+extern const idEventDef EV_Speaker_OnNoParallel;
+extern const idEventDef EV_Speaker_Off;
+//ff1.3 end
+
 /*
 ===============================================================================
 
@@ -71,6 +76,7 @@ private:
 	void			Event_Trigger( idEntity *activator );
 	void			Event_Timer( void );
 	void			Event_On( void );
+	void			Event_OnNoParallel( void ); //ff1.3
 	void			Event_Off( void );
 	void			DoSound( bool play );
 };

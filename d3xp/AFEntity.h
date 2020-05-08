@@ -124,7 +124,11 @@ public:
 	virtual void			AddForce( idEntity *ent, int id, const idVec3 &point, const idVec3 &force );
 
 	virtual	void			Damage( idEntity *inflictor, idEntity *attacker, const idVec3 &dir, const char *damageDefName, const float damageScale, const int location );
+#ifdef _DENTONMOD
+	virtual void			AddDamageEffect( const trace_t &collision, const idVec3 &velocity, const char *damageDefName, idEntity *soundEnt=NULL );
+#else
 	virtual void			AddDamageEffect( const trace_t &collision, const idVec3 &velocity, const char *damageDefName );
+#endif
 
 	void					SetCombatModel( void );
 	idClipModel *			GetCombatModel( void ) const;
@@ -158,6 +162,11 @@ public:
 
 	void					Save( idSaveGame *savefile ) const;
 	void					Restore( idRestoreGame *savefile );
+
+	//ivan start
+	//recreate dynamically-added constraints to 'constraints' while physics obejct is being restored
+	virtual void			RecreateDynamicConstraints( idList<idAFConstraint *> *constraints );
+	//ivan end
 
 	virtual void			Think( void );
 	virtual void			GetImpactInfo( idEntity *ent, int id, const idVec3 &point, impactInfo_t *info );
@@ -211,6 +220,10 @@ idAFEntity_Gibbable
 ===============================================================================
 */
 
+//ivan start
+class idDamagingFx; 
+//ivan end
+
 extern const idEventDef		EV_Gib;
 extern const idEventDef		EV_Gibbed;
 
@@ -244,6 +257,20 @@ protected:
 #ifdef _D3XP
 	bool					wasThrown;
 #endif
+
+	//ff1.3 start
+	//dmgFxs
+	bool					allowDmgfxs;
+	idList< idEntityPtr<idDamagingFx> >	dmgFxEntities;
+
+	void					StartDamageFx( const char *defName, idEntity *attacker );
+	void					StopDamageFxs( void );
+	void					KilledDamageFxs( void );
+	void					RemoveDamageFxs( void );
+	void					CheckDamageFx( const idDict *damageDef, idEntity *attacker );
+
+	virtual void			Killed( idEntity *inflictor, idEntity *attacker, int damage, const idVec3 &dir, int location );
+	//ff1.3 end
 
 	virtual void			Gib( const idVec3 &dir, const char *damageDefName );
 	void					InitSkeletonModel( void );
@@ -340,12 +367,49 @@ public:
 	CLASS_PROTOTYPE( idAFEntity_Vehicle );
 
 							idAFEntity_Vehicle( void );
+							~idAFEntity_Vehicle();
 
 	void					Spawn( void );
-	void					Use( idPlayer *player );
+	//void					Use( idPlayer *player );
+	bool					StartDriving( idPlayer *player );
+	void					StopDriving( void );
+
+	void					InitHudStats( idUserInterface *hud, idUserInterface *cursor );
+	void					UpdateHudStats( idUserInterface *hud );
+	
+	//ivan start
+	//void					NextWeapon( void );
+	//void					PrevWeapon( void );
+
+	void					Save( idSaveGame *savefile ) const;
+	void					Restore( idRestoreGame *savefile );
+
+	virtual	void			Damage( idEntity *inflictor, idEntity *attacker, const idVec3 &dir, const char *damageDefName, const float damageScale, const int location ); //ff
+	virtual void			Killed( idEntity *inflictor, idEntity *attacker, int damage, const idVec3 &dir, int location );
+
+	virtual void			Teleport( const idVec3 &origin, const idAngles &angles, idEntity *destination );
+
+	void					GetCameraPos( idVec3 &origin, idMat3 &axis );
+	float					GetThirdPersonRange( void ) const;
+	float					GetThirdPersonHeight( void ) const;
+	idVec3					EyeOffset( void ) const;
+	idVec3					GetEyePosition( void ) const;
+	idPlayer *				GetDriver( void ) const;
+	void					GetAIAimTargets( const idVec3 &lastSightPos, idVec3 &headPos, idVec3 &chestPos );
+
+							// script state management
+	void					ShutdownThreads( void );
+	//virtual bool			ShouldConstructScriptObjectAtSpawn( void ) const;
+	virtual idThread *		ConstructScriptObject( void );
+	void					UpdateScript( void );
+	const function_t		*GetScriptFunction( const char *funcname );
+	void					SetState( const function_t *newState );
+	void					SetState( const char *statename );
+
+	//ivan end
 
 protected:
-	idPlayer *				player;
+	idPlayer *				driver;
 	jointHandle_t			eyesJoint;
 	jointHandle_t			steeringWheelJoint;
 	float					wheelRadius;
@@ -353,9 +417,54 @@ protected:
 	float					steerSpeed;
 	const idDeclParticle *	dustSmoke;
 
+	//ivan start
+	int						ammo;
+
+	//third-person camera
+	jointHandle_t			cameraJoint;
+	float					thirdPersonRange;
+	float					thirdPersonHeight;
+	
+	//settings (were CVars)
+	float					vehicleVelocity;
+	float					vehicleForce;
+	
+	//script variables
+	idScriptBool			VEHICLE_FIRING;
+	idScriptBool			VEHICLE_FORWARD;
+	idScriptBool			VEHICLE_DEAD;
+
+	// script variables
+	idThread *				scriptThread;
+	//ivan end
+
 	float					GetSteerAngle( void );
+
+//ivan start
+private:
+	void					Event_GetDriver( void );
+	void					Event_GetAimAngles( const idVec3 &firePos );
+	void					LinkScriptVariables( void );
+
+	
+	void					Event_AmmoAvailable( void );
+	void					Event_UseAmmo( int amount );
+//ivan end
 };
 
+//ivan start
+ID_INLINE idPlayer * idAFEntity_Vehicle::GetDriver( void ) const {
+	return driver;
+}
+
+ID_INLINE float idAFEntity_Vehicle::GetThirdPersonRange( void ) const {
+	return thirdPersonRange;
+}
+
+ID_INLINE float idAFEntity_Vehicle::GetThirdPersonHeight( void ) const {
+	return thirdPersonHeight;
+}
+//ivan end
 
 /*
 ===============================================================================
@@ -374,12 +483,39 @@ public:
 
 	void					Spawn( void );
 	virtual void			Think( void );
+	
+	//ivan start
+	virtual bool			Collide( const trace_t &collision, const idVec3 &velocity );
+
+	void					Save( idSaveGame *savefile ) const;
+	void					Restore( idRestoreGame *savefile );
+	virtual void			RecreateDynamicConstraints( idList<idAFConstraint *> *constraints );
+	//ivan end
 
 protected:
 	idClipModel *			wheelModel;
 	idAFConstraint_Suspension *	suspension[4];
 	jointHandle_t			wheelJoints[4];
 	float					wheelAngles[4];
+
+	//settings (were CVars)
+	float					vehicleSuspensionUp;
+	float					vehicleSuspensionDown;
+	float					vehicleSuspensionKCompress;
+	float					vehicleSuspensionDamping;
+	float					vehicleTireFriction;
+
+	//ivan start
+	idStr					damage;					// if > 0 apply damage to hit entities
+	idStr					fxCollide;				// fx system to start when collides with something
+	int						nextCollideFxTime;		// next time it is ok to spawn collision fx
+
+	void					PredictCollisions( void );
+	void					ApplyCollisionFeedback( const trace_t &collision, const idVec3 &velocity, bool predicted );
+	
+private:
+	void					Event_SetTireFriction( float tireFriction );
+	//ivan end
 };
 
 

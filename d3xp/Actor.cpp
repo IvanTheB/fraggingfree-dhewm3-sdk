@@ -373,6 +373,11 @@ const idEventDef EV_SetDamageCap( "setDamageCap", "f" );
 const idEventDef EV_SetWaitState( "setWaitState" , "s" );
 const idEventDef EV_GetWaitState( "getWaitState", NULL, 's' );
 #endif
+//ff1.3 start
+const idEventDef AI_GetTeam( "getTeam", NULL, 'd' );
+const idEventDef AI_HasDamageFx( "hasDamageFx", NULL, 'd' );
+const idEventDef AI_GetNextTalkAfterPainTime( "getNextTalkAfterPainTime", NULL, 'f' );
+//ff1.3 end
 
 CLASS_DECLARATION( idAFEntity_Gibbable, idActor )
 	EVENT( AI_EnableEyeFocus,			idActor::Event_EnableEyeFocus )
@@ -424,6 +429,11 @@ CLASS_DECLARATION( idAFEntity_Gibbable, idActor )
 	EVENT( EV_SetWaitState,				idActor::Event_SetWaitState )
 	EVENT( EV_GetWaitState,				idActor::Event_GetWaitState )
 #endif
+	//ff1.3 start
+	EVENT( AI_GetTeam,					idActor::Event_GetTeam )
+	EVENT( AI_HasDamageFx,				idActor::Event_HasDamageFx )
+	EVENT( AI_GetNextTalkAfterPainTime,	idActor::Event_GetNextTalkAfterPainTime )
+	//ff1.3 end
 END_CLASS
 
 /*
@@ -468,7 +478,7 @@ idActor::idActor( void ) {
 	blink_min			= 0;
 	blink_max			= 0;
 
-	finalBoss			= false;
+	//finalBoss			= false;
 
 	attachments.SetGranularity( 1 );
 
@@ -478,6 +488,14 @@ idActor::idActor( void ) {
 #ifdef _D3XP
 	damageCap = -1;
 #endif
+
+	//ivan start
+	/*
+	dmgFxEntities.Clear();
+	allowDmgfxs			= false;
+	*/
+	currentVehicle		= NULL;
+	//ivan end
 }
 
 /*
@@ -645,7 +663,7 @@ void idActor::Spawn( void ) {
 		}
 	}
 
-	finalBoss = spawnArgs.GetBool( "finalBoss" );
+	//finalBoss = spawnArgs.GetBool( "finalBoss" );
 
 	FinishSetup();
 }
@@ -874,7 +892,7 @@ void idActor::Save( idSaveGame *savefile ) const {
 		savefile->WriteInt( attachments[i].channel );
 	}
 
-	savefile->WriteBool( finalBoss );
+	//savefile->WriteBool( finalBoss );
 
 	idToken token;
 
@@ -907,6 +925,18 @@ void idActor::Save( idSaveGame *savefile ) const {
 	savefile->WriteInt(damageCap);
 #endif
 
+	//ivan start
+	/*
+	//dmgfx start
+	savefile->WriteBool( allowDmgfxs );
+	savefile->WriteInt( dmgFxEntities.Num() );
+	for( i = 0; i < dmgFxEntities.Num(); i++ ) {
+		dmgFxEntities[ i ].Save( savefile );
+	}
+	//dmgfx end
+	*/
+	savefile->WriteObject( currentVehicle );
+	//ivan end
 }
 
 /*
@@ -1002,7 +1032,7 @@ void idActor::Restore( idRestoreGame *savefile ) {
 		savefile->ReadInt( attach.channel );
 	}
 
-	savefile->ReadBool( finalBoss );
+	//savefile->ReadBool( finalBoss );
 
 	idStr statename;
 
@@ -1019,6 +1049,22 @@ void idActor::Restore( idRestoreGame *savefile ) {
 #ifdef _D3XP
 	savefile->ReadInt(damageCap);
 #endif
+
+	//ivan start
+	/*
+	//dmgfx start
+	savefile->ReadBool( allowDmgfxs );
+
+	dmgFxEntities.Clear();
+	savefile->ReadInt( num );
+	dmgFxEntities.SetNum( num );
+	for( i = 0; i < num; i++ ) {
+		dmgFxEntities[ i ].Restore( savefile );
+	}
+	//dmgfx end
+	*/
+	savefile->ReadObject( reinterpret_cast<idClass *&>( currentVehicle ) );
+	//ivan end
 }
 
 /*
@@ -1063,7 +1109,9 @@ void idActor::Show( void ) {
 	for( ent = GetNextTeamEntity(); ent != NULL; ent = next ) {
 		next = ent->GetNextTeamEntity();
 		if ( ent->GetBindMaster() == this ) {
-			ent->Show();
+			if ( !ent->IsType( idPlayer::Type ) ) { //ff1.3: don't show bound players
+				ent->Show();
+			}
 			if ( ent->IsType( idLight::Type ) ) {
 #ifdef _D3XP
 				if(!spawnArgs.GetBool("lights_off", "0")) {
@@ -1475,8 +1523,8 @@ void idActor::GetViewPos( idVec3 &origin, idMat3 &axis ) const {
 idActor::CheckFOV
 =====================
 */
-bool idActor::CheckFOV( const idVec3 &pos ) const {
-	if ( fovDot == 1.0f ) {
+bool idActor::CheckFOV( const idVec3 &pos, float targetFovDot ) const { //ff1.3 - targetFovDot added
+	if ( targetFovDot == 1.0f ) { //ff1.3 - was: if ( fovDot == 1.0f ) {
 		return true;
 	}
 
@@ -1494,30 +1542,33 @@ bool idActor::CheckFOV( const idVec3 &pos ) const {
 	delta.Normalize();
 	dot = viewAxis[ 0 ] * delta;
 
-	return ( dot >= fovDot );
+	return ( dot >= targetFovDot ); //ff1.3 - was: return ( dot >= fovDot );
 }
 
 /*
 =====================
 idActor::CanSee
 =====================
-*/
+
 bool idActor::CanSee( idEntity *ent, bool useFov ) const {
 	trace_t		tr;
 	idVec3		eye;
 	idVec3		toPos;
 
-	if ( ent->IsHidden() ) {
+	if ( ent->IsHidden() && (!ent->IsType( idActor::Type )
+		|| ( ( ( idActor * )ent )->GetCurrentVehicle() && ( ( idActor * )ent )->GetCurrentVehicle()->IsHidden() ) ) ){
 		return false;
 	}
 
 	if ( ent->IsType( idActor::Type ) ) {
 		toPos = ( ( idActor * )ent )->GetEyePosition();
-	} else {
+	} else if ( ent->IsType( idAFEntity_Vehicle::Type ) ) {
+		toPos = ( ( idAFEntity_Vehicle * )ent )->GetEyePosition();
+	} else  {
 		toPos = ent->GetPhysics()->GetOrigin();
 	}
 
-	if ( useFov && !CheckFOV( toPos ) ) {
+	if ( useFov && !CheckFOV( toPos, fovDot ) ) { //ff1.3 - fovDot
 		return false;
 	}
 
@@ -1530,7 +1581,55 @@ bool idActor::CanSee( idEntity *ent, bool useFov ) const {
 
 	return false;
 }
+*/
 
+/*
+=====================
+idActor::CanSee
+=====================
+*/
+bool idActor::CanSee( idEntity *ent, bool useFov ) const { //ff1.3 - vehicle support added
+	trace_t		tr;
+	idVec3		eye;
+	idVec3		toPos;
+
+	if ( ent->IsType( idActor::Type ) ) {
+		idActor * actor = static_cast<idActor *>( ent );
+		if ( actor->GetCurrentVehicle() ) {
+			if ( actor->GetCurrentVehicle()->IsHidden() ) {
+				return false;
+			}
+			toPos = actor->GetCurrentVehicle()->GetEyePosition();
+		} else {
+			if ( actor->IsHidden() ) {
+				return false;
+			}
+			toPos = actor->GetEyePosition();
+		}
+	} else {
+		if ( ent->IsHidden() ){
+			return false;
+		}
+		if ( ent->IsType( idAFEntity_Vehicle::Type ) ) {
+			toPos = static_cast<idAFEntity_Vehicle *>( ent )->GetEyePosition();
+		} else {
+			toPos = ent->GetPhysics()->GetOrigin();
+		}
+	}
+
+	if ( useFov && !CheckFOV( toPos, fovDot ) ) { //ff1.3 - fovDot
+		return false;
+	}
+
+	eye = GetEyePosition();
+
+	gameLocal.clip.TracePoint( tr, eye, toPos, MASK_OPAQUE, this );
+	if ( tr.fraction >= 1.0f || ( gameLocal.GetTraceEntity( tr ) == ent ) ) {
+		return true;
+	}
+
+	return false;
+}
 /*
 =====================
 idActor::PointVisible
@@ -1701,6 +1800,19 @@ bool idActor::StartRagdoll( void ) {
 	idAFEntity_Base::DropAFs( this, "death", NULL );
 
 	RemoveAttachments();
+
+	//ff1.3 start
+	if ( spawnArgs.GetBool( "resetTimeOnDeath" ) ) {
+		renderEntity.shaderParms[SHADERPARM_TIMEOFFSET] = -MS2SEC( gameLocal.time );
+	}
+
+	if ( head.GetEntity() ) {
+		const char *skinName = spawnArgs.GetString( "skin_dropDeath_head" );
+		if ( skinName[0] ) {
+			head.GetEntity()->SetSkin( declManager->FindSkin( skinName ) );
+		}
+	}
+	//ff1.3 end
 
 	return true;
 }
@@ -2183,8 +2295,38 @@ void idActor::Gib( const idVec3 &dir, const char *damageDefName ) {
 		head.GetEntity()->Hide();
 	}
 	StopSound( SND_CHANNEL_VOICE, false );
+
+	/*
+	//ivan start - turn off dmgfxs on gib
+	StopDamageFxs();
+	allowDmgfxs = false;
+	//ivan end
+	*/
 }
 
+//ff1.3 start
+/*
+============
+idActor::IgnoreDamage
+============
+*/
+bool idActor::IgnoreDamage( idEntity *inflictor, idEntity *attacker, const idDict *damageDef, float *additionalDamageScale ){
+	int attackerTeam = (attacker && attacker->IsType( idActor::Type )) ?
+		static_cast< idActor* >( attacker )->team : 0;
+
+	if ( team == attackerTeam ) {
+		if ( damageDef->GetBool( "ignore_friends" ) ) {
+			return true;
+		} else {
+			*additionalDamageScale = damageDef->GetFloat( "friendsDamageScale", "1" );
+			return false;
+		}
+	}
+
+	*additionalDamageScale = 1.0f;
+	return false;
+}
+//ff1.3 end
 
 /*
 ============
@@ -2221,6 +2363,8 @@ void idActor::Damage( idEntity *inflictor, idEntity *attacker, const idVec3 &dir
 #ifdef _D3XP
 	SetTimeState ts( timeGroup );
 
+	//ff1.3 start - code removed
+	/* was:
 	// Helltime boss is immune to all projectiles except the helltime killer
 	if ( finalBoss && idStr::Icmp(inflictor->GetEntityDefName(), "projectile_helltime_killer") ) {
 		return;
@@ -2231,6 +2375,8 @@ void idActor::Damage( idEntity *inflictor, idEntity *attacker, const idVec3 &dir
 		(!idStr::Icmp( damageDefName, "damage_maledict_asteroid" ) || !idStr::Icmp( damageDefName, "damage_maledict_asteroid_splash" ) ) ) {
 		return;
 	}
+	*/
+	//ff1.3 end
 #else
 	if ( finalBoss && !inflictor->IsType( idSoulCubeMissile::Type ) ) {
 		return;
@@ -2242,11 +2388,36 @@ void idActor::Damage( idEntity *inflictor, idEntity *attacker, const idVec3 &dir
 		gameLocal.Error( "Unknown damageDef '%s'", damageDefName );
 	}
 
+	//ff start
+	/* was:
 	int	damage = damageDef->GetInt( "damage" ) * damageScale;
 	damage = GetDamageForLocation( damage, location );
+	*/
+
+	float additionalDamageScale = 1.0f;
+	if ( IgnoreDamage( inflictor, attacker, damageDef, &additionalDamageScale ) ) {
+		return;
+	}
+
+	int	damage = damageDef->GetInt( "damage" ) * damageScale * additionalDamageScale;
+	if( !damageDef->GetBool( "ignore_location_scale" ) ) {
+		damage = GetDamageForLocation( damage, location );
+	}
+
+	if ( damage == 0 && af.IsActive() ) {
+		damage = 1; //workaround for "frozen AF" bug if damage is 0
+	}
+
+	/*
+	if ( g_debugDamage.GetInteger() ) {
+		gameLocal.Printf("%s received damage: %d\n", GetName(), damage);
+	}
+	*/
+	//ff end
 
 	// inform the attacker that they hit someone
 	attacker->DamageFeedback( this, inflictor, damage );
+
 	if ( damage > 0 ) {
 		health -= damage;
 
@@ -2256,6 +2427,14 @@ void idActor::Damage( idEntity *inflictor, idEntity *attacker, const idVec3 &dir
 			health = damageCap;
 		}
 #endif
+		//ff1.3 start
+		if ( attacker->GetBindMaster() && attacker->spawnArgs.GetBool("hit_as_player") && gameLocal.GetLocalPlayer() ) { //fix for bound friendly AIs like turrets
+			gameLocal.GetLocalPlayer()->DamageFeedback( this, inflictor, damage );
+			if ( health <= 0 && health + damage > 0 ) { //killed by this damage
+				gameLocal.GetLocalPlayer()->AddAIKill( this, inflictor, damageDef );
+			}
+		}
+		//ff1.3 end
 
 		if ( health <= 0 ) {
 			if ( health < -999 ) {
@@ -2265,6 +2444,19 @@ void idActor::Damage( idEntity *inflictor, idEntity *attacker, const idVec3 &dir
 			if ( ( health < -20 ) && spawnArgs.GetBool( "gib" ) && damageDef->GetBool( "gib" ) ) {
 				Gib( dir, damageDefName );
 			}
+			//ff start
+			if ( health + damage > 0 ) { //killed by this damage - moved here from idAI because we need damageDef
+
+				//Kill callback
+				if ( attacker->IsType( idPlayer::Type ) ) {
+					static_cast< idPlayer* >( attacker )->AddAIKill( this, inflictor, damageDef );
+				} else if ( attacker->IsType( idAI_Rideable::Type ) && static_cast< idAI_Rideable* >( attacker )->GetDriver() ) {
+					static_cast< idAI_Rideable* >( attacker )->GetDriver()->AddAIKill( this, inflictor, damageDef );
+				} else if ( attacker->IsType( idAFEntity_Vehicle::Type ) && static_cast< idAFEntity_Vehicle* >( attacker )->GetDriver() ) {
+					static_cast< idAFEntity_Vehicle* >( attacker )->GetDriver()->AddAIKill( this, inflictor, damageDef );
+				}
+			}
+			//ff end
 		} else {
 			Pain( inflictor, attacker, damage, dir, location );
 		}
@@ -2278,6 +2470,13 @@ void idActor::Damage( idEntity *inflictor, idEntity *attacker, const idVec3 &dir
 			BecomeActive( TH_PHYSICS );
 		}
 	}
+
+	//ff1.3 start
+	//damaging fx
+	if ( allowDmgfxs && !gibbed ) {
+		CheckDamageFx( damageDef, attacker );
+	}
+	//ff1.3 end
 }
 
 /*
@@ -2310,7 +2509,7 @@ bool idActor::Pain( idEntity *inflictor, idEntity *attacker, int damage, const i
 	// don't play pain sounds more than necessary
 	pain_debounce_time = gameLocal.time + pain_delay;
 
-	if ( health > 75  ) {
+	if ( health > 75 ) {
 		StartSound( "snd_pain_small", SND_CHANNEL_VOICE, 0, false, NULL );
 	} else if ( health > 50 ) {
 		StartSound( "snd_pain_medium", SND_CHANNEL_VOICE, 0, false, NULL );
@@ -3403,3 +3602,65 @@ void idActor::Event_GetWaitState() {
 	}
 }
 #endif
+
+//ivan start
+/*
+=====================
+idActor::Event_HasDamageFx
+=====================
+*/
+void idActor::Event_HasDamageFx( void ){
+	int i;
+	for( i = dmgFxEntities.Num() - 1; i >= 0; i-- ) {
+		if ( dmgFxEntities[ i ].GetEntity() && dmgFxEntities[ i ].GetEntity()->IsActive() ) {
+			idThread::ReturnInt( true );
+			return;
+		}
+	}
+	idThread::ReturnInt( false );
+}
+
+/*
+=====================
+idActor::Event_GetTeam
+=====================
+*/
+void idActor::Event_GetTeam( void ) {
+	idThread::ReturnInt( team );
+}
+
+/*
+=====================
+idActor::Event_GetNextTalkAfterPainTime
+=====================
+*/
+void idActor::Event_GetNextTalkAfterPainTime( void ) {
+	idThread::ReturnFloat( MS2SEC(pain_debounce_time) + 1.0f );
+}
+
+/*
+=====================
+idActor::GetInsideBodyAimTarget
+=====================
+*/
+bool idActor::GetInsideBodyAimTarget( idVec3 &pos ){
+	jointHandle_t	joint;
+	idMat3			axis;
+
+	const char *jointname = spawnArgs.GetString("joint_aimed"); // "Shoulders";
+	if ( jointname && *jointname ) {
+		joint = animator.GetJointHandle( jointname );
+		if ( joint == INVALID_JOINT ) {
+			gameLocal.Warning( "Unknown joint '%s' on %s", jointname, GetEntityDefName() );
+			return false;
+		}
+	} else {
+		//gameLocal.Warning( "Missing 'joint_aimed' key on %s", GetEntityDefName() );
+		return false;
+	}
+
+	GetJointWorldTransform( joint, gameLocal.time, pos, axis );
+	return true;
+}
+
+//ivan end

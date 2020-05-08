@@ -64,9 +64,18 @@ const int PMF_JUMP_HELD			= 16;		// set when jump button is held down
 const int PMF_TIME_LAND			= 32;		// movementTime is time before rejump
 const int PMF_TIME_KNOCKBACK	= 64;		// movementTime is an air-accelerate only time
 const int PMF_TIME_WATERJUMP	= 128;		// movementTime is waterjump
+const int PMF_DODGED			= 256;		// ff1.3 - set when the player dodged this frame 
 const int PMF_ALL_TIMES			= (PMF_TIME_WATERJUMP|PMF_TIME_LAND|PMF_TIME_KNOCKBACK);
 
 int c_pmove = 0;
+
+//ivan start
+//const int DOUBLE_JUMP_MAX_DELAY			= 450;	// ms
+const float DOUBLE_JUMP_MIN_GROUND_DISTANCE	= 40.0f;
+const int DOUBLE_JUMP_MIN_DELAY				= 350;	// ms
+const int DOUBLE_JUMP_POWER					= 2.0f; //1.5f
+const int WALLDODGE_MAXDISTANCE				= 40;	// max wall distance
+//ivan end
 
 /*
 ============
@@ -180,7 +189,7 @@ bool idPhysics_Player::SlideMove( bool gravity, bool stepUp, bool stepDown, bool
 	primal_velocity = current.velocity;
 
 	if ( gravity ) {
-		endVelocity = current.velocity + gravityVector * frametime;
+		endVelocity = current.velocity + gravityVector * gravityMultiplier * frametime;
 		current.velocity = ( current.velocity + endVelocity ) * 0.5f;
 		primal_velocity = endVelocity;
 		if ( groundPlane ) {
@@ -599,6 +608,195 @@ void idPhysics_Player::FlyMove( void ) {
 	idPhysics_Player::SlideMove( false, false, false, false );
 }
 
+//ff1.3 start
+const float	DODGE_POWER				= 600.0f;
+const float	DODGE_OBLIQUE_MULT		= 0.5f;
+const float	DODGE_HEIGHT_GROUND		= 140.0f;
+const float	DODGE_HEIGHT_AIR		= 245.0f;
+const int	DODGE_TIME_MS			= 150;	//real time is x2
+const int	DODGE_MIN_DELAY_MS		= 100;
+const int	DODGE_MAX_DELAY_MS		= 800;
+
+const int FLAG_NULL					= 0;
+const int FLAG_RIGHT				= 1;
+const int FLAG_LEFT					= 2;
+
+
+/*
+=============
+idPhysics_Player::CheckDodge
+=============
+*/
+void idPhysics_Player::CheckDodge( void ) {
+	int currentDirection;
+	int i;
+
+	if ( command.rightmove > 0 ) {
+		currentDirection = FLAG_RIGHT;
+	} else if ( command.rightmove < 0 ) {
+		currentDirection = FLAG_LEFT;
+	} else {
+		currentDirection = FLAG_NULL;
+	}
+
+	//make sure we can dodge again after we touch the ground or jump
+	if ( nextDodgeMaxTime > 0 && (groundPlane || lastJumpTime == gameLocal.time) && (gameLocal.time >= nextDodgeMinTime) ) {
+		nextDodgeMaxTime = 0;
+	}
+	
+	//upd history
+	if ( (currentDirection != dodgeHistory[0]) || (dodgeHistoryTimeout < gameLocal.time) ) {
+		dodgeHistoryTimeout = gameLocal.time + DODGE_TIME_MS;
+
+		if ( (( dodgeHistory[2]  == FLAG_NULL ) && ( dodgeHistory[1] == FLAG_RIGHT ) && ( dodgeHistory[0] == FLAG_NULL ) && ( currentDirection == FLAG_RIGHT ))
+			|| (( dodgeHistory[2]  == FLAG_NULL ) && ( dodgeHistory[1] == FLAG_LEFT ) && ( dodgeHistory[0] == FLAG_NULL ) && ( currentDirection == FLAG_LEFT )) ){
+	
+			if ( gameLocal.time >= nextDodgeMaxTime || (!groundPlane && gameLocal.time >= nextDodgeMinTime && CanWallDodge()) ) {
+				PerformDodge();
+			}
+		}
+
+		//shift values
+		for ( i = DODGE_HISTORY_SIZE-1; i > 0; i-- ) {
+			dodgeHistory[i] = dodgeHistory[i-1];
+		}
+		dodgeHistory[0] = currentDirection;
+	}
+}
+
+
+/*
+=============
+idPhysics_Player::PerformDodge
+=============
+*/
+void idPhysics_Player::PerformDodge( void ) {
+	idVec3 velocity;
+
+	velocity = viewRight * DODGE_POWER;
+
+	if ( command.rightmove < 0 ) {
+		velocity *= -1.0f;
+	}
+
+	if ( command.forwardmove > 0 ) {
+		velocity += (viewForward * DODGE_POWER * DODGE_OBLIQUE_MULT);
+	} else if ( command.forwardmove < 0) { 
+		velocity += (viewForward * -DODGE_POWER * DODGE_OBLIQUE_MULT);
+	}
+
+	if ( groundPlane ) {
+		velocity += DODGE_HEIGHT_GROUND * -gravityNormal;
+	} else { 
+		velocity += DODGE_HEIGHT_AIR * -gravityNormal;
+	}
+
+	current.velocity = velocity;
+	nextDodgeMaxTime = gameLocal.time + DODGE_MAX_DELAY_MS;
+	nextDodgeMinTime = gameLocal.time + DODGE_MIN_DELAY_MS;
+	current.movementFlags |= PMF_DODGED;
+}
+
+/*
+=============
+idPhysics_Player::CanWallDodge
+=============
+*/
+bool idPhysics_Player::CanWallDodge( void ){
+	trace_t	trace;
+
+	const idVec3 walldir = viewRight * ( command.rightmove < 0 ? 1.0f : -1.0f ); 
+	const idVec3 start = current.origin + idVec3( 0.0f, 0.0f, 5.0f ); //a little Z offset to make sure we don't touch the ground 
+	const idVec3 end = start + viewRight * ( (command.rightmove < 0) ? WALLDODGE_MAXDISTANCE : -WALLDODGE_MAXDISTANCE );
+	const idVec3 mins = idVec3( -5.0f, -5.0f, 0.0f ); //Z: don't touch something below
+	const idVec3 maxs = idVec3( 5.0f, 5.0f, 35.0f ); 
+
+	gameLocal.clip.TraceBounds( trace, start, end, idBounds( mins, maxs ), MASK_SOLID|CONTENTS_RENDERMODEL, self );
+	return ( trace.fraction < 1.0f );
+} 
+
+/*
+=============
+idPhysics_Player::CheckDoubleJumpGroundDistance
+=============
+*/
+bool idPhysics_Player::CheckDoubleJumpGroundDistance( void ) {
+	trace_t trace;
+	idVec3 end;
+	
+	end = current.origin + DOUBLE_JUMP_MIN_GROUND_DISTANCE * gravityNormal;
+	gameLocal.clip.Translation( trace, current.origin, end, clipModel, clipModel->GetAxis(), clipMask, self );
+	return ( trace.fraction == 1.0f );
+}
+
+/*
+=============
+idPhysics_Player::CheckDoubleJump
+=============
+*/
+bool idPhysics_Player::CheckDoubleJump( void ) {
+	idVec3 addVelocity;
+
+	if ( command.upmove < 10 ) {
+		// not holding jump
+		return false;
+	}
+	
+	// must wait for jump to be released
+	if ( current.movementFlags & PMF_JUMP_HELD ) {
+		return false;
+	}
+
+	// don't jump if we can't stand up
+	if ( current.movementFlags & PMF_DUCKED ) {
+		return false;
+	}
+
+	// not enough time passed by
+	if ( gameLocal.time < lastJumpTime + DOUBLE_JUMP_MIN_DELAY ) {
+		return false;
+	}
+
+	/*
+	// too much time passed by
+	if ( gameLocal.time > lastJumpTime + DOUBLE_JUMP_MAX_DELAY ) {
+		return false;
+	}
+	*/
+
+	//too close to ground - this is needed to allow bunny jumping
+	if ( !CheckDoubleJumpGroundDistance() ) {
+		//gameLocal.Printf("too close to ground\n");
+		return false;
+	}
+
+	//common settings
+	groundPlane = false;		// jumping away
+	walking = false;
+	current.movementFlags |= PMF_JUMP_HELD | PMF_JUMPED;
+
+	//apply velocity
+	/*
+	addVelocity = 1.5f * maxJumpHeight * -gravityVector; 
+	addVelocity *= idMath::Sqrt( addVelocity.Normalize() );
+	current.velocity.z = addVelocity.z; 
+	*/
+	addVelocity = DOUBLE_JUMP_POWER * maxJumpHeight * -gravityVector * gravityMultiplier;
+	addVelocity *= idMath::Sqrt( addVelocity.Normalize() );
+	
+	float currentZspeed = current.velocity * -gravityNormal;
+	if ( currentZspeed >= 0 ) {
+		current.velocity += addVelocity;
+	} else { //don't consider negative speed
+		current.velocity += (addVelocity + currentZspeed * gravityNormal);
+	}
+
+	//gameLocal.Printf("double jump\n");
+	doubleJumpDone = true;
+	return true;
+}
+//ff1.3 end
+
 /*
 ===================
 idPhysics_Player::AirMove
@@ -609,6 +807,12 @@ void idPhysics_Player::AirMove( void ) {
 	idVec3		wishdir;
 	float		wishspeed;
 	float		scale;
+
+	//ivan start
+	if ( !doubleJumpDone ) {
+		CheckDoubleJump();
+	}
+	//ivan end
 
 	idPhysics_Player::Friction();
 
@@ -712,7 +916,7 @@ void idPhysics_Player::WalkMove( void ) {
 	idPhysics_Player::Accelerate( wishdir, wishspeed, accelerate );
 
 	if ( ( groundMaterial && groundMaterial->GetSurfaceFlags() & SURF_SLICK ) || current.movementFlags & PMF_TIME_KNOCKBACK ) {
-		current.velocity += gravityVector * frametime;
+		current.velocity += gravityVector * gravityMultiplier * frametime;
 	}
 
 	oldVelocity = current.velocity;
@@ -909,13 +1113,13 @@ void idPhysics_Player::LadderMove( void ) {
 
 	if ( (wishvel * gravityNormal) == 0.0f ) {
 		if ( current.velocity * gravityNormal < 0.0f ) {
-			current.velocity += gravityVector * frametime;
+			current.velocity += gravityVector * gravityMultiplier * frametime;
 			if ( current.velocity * gravityNormal > 0.0f ) {
 				current.velocity -= (gravityNormal * current.velocity) * gravityNormal;
 			}
 		}
 		else {
-			current.velocity -= gravityVector * frametime;
+			current.velocity -= gravityVector * gravityMultiplier * frametime;
 			if ( current.velocity * gravityNormal < 0.0f ) {
 				current.velocity -= (gravityNormal * current.velocity) * gravityNormal;
 			}
@@ -1200,9 +1404,17 @@ bool idPhysics_Player::CheckJump( void ) {
 	walking = false;
 	current.movementFlags |= PMF_JUMP_HELD | PMF_JUMPED;
 
-	addVelocity = 2.0f * maxJumpHeight * -gravityVector;
+	addVelocity = 2.0f * maxJumpHeight * -gravityVector * gravityMultiplier;
 	addVelocity *= idMath::Sqrt( addVelocity.Normalize() );
 	current.velocity += addVelocity;
+
+	//ivan start
+
+	//reset double jump so that we can do it again
+	lastJumpTime = gameLocal.time;
+	doubleJumpDone = false;
+	//gameLocal.Printf("Jump");
+	//ivan end
 
 	return true;
 }
@@ -1334,7 +1546,7 @@ void idPhysics_Player::MovePlayer( int msec ) {
 	playerSpeed = walkSpeed;
 
 	// remove jumped and stepped up flag
-	current.movementFlags &= ~(PMF_JUMPED|PMF_STEPPED_UP|PMF_STEPPED_DOWN);
+	current.movementFlags &= ~(PMF_JUMPED|PMF_STEPPED_UP|PMF_STEPPED_DOWN|PMF_DODGED);
 	current.stepUp = 0.0f;
 
 	if ( command.upmove < 10 ) {
@@ -1417,6 +1629,8 @@ void idPhysics_Player::MovePlayer( int msec ) {
 		// airborne
 		idPhysics_Player::AirMove();
 	}
+	
+	idPhysics_Player::CheckDodge(); //ff1.3
 
 	// set watertype, waterlevel and groundentity
 	idPhysics_Player::SetWaterLevel();
@@ -1453,6 +1667,16 @@ idPhysics_Player::HasJumped
 bool idPhysics_Player::HasJumped( void ) const {
 	return ( ( current.movementFlags & PMF_JUMPED ) != 0 );
 }
+
+/*
+================
+idPhysics_Player::HasDodged
+================
+*/
+bool idPhysics_Player::HasDodged( void ) const {
+	return ( ( current.movementFlags & PMF_DODGED ) != 0 );
+}
+
 
 /*
 ================
@@ -1520,6 +1744,18 @@ idPhysics_Player::idPhysics_Player( void ) {
 	ladderNormal.Zero();
 	waterLevel = WATERLEVEL_NONE;
 	waterType = 0;
+
+	//ivan start
+	doubleJumpDone = false;
+	lastJumpTime = 0;
+
+	nextDodgeMinTime = 0;
+	nextDodgeMaxTime = 0;
+	dodgeHistoryTimeout = 0;
+	memset( dodgeHistory, 0, sizeof( dodgeHistory ) );
+
+	//ivan end
+	gravityMultiplier = 1.0f; //ff1.1
 }
 
 /*
@@ -1560,6 +1796,7 @@ idPhysics_Player::Save
 ================
 */
 void idPhysics_Player::Save( idSaveGame *savefile ) const {
+	int i;
 
 	idPhysics_Player_SavePState( savefile, current );
 	idPhysics_Player_SavePState( savefile, saved );
@@ -1589,6 +1826,20 @@ void idPhysics_Player::Save( idSaveGame *savefile ) const {
 
 	savefile->WriteInt( (int)waterLevel );
 	savefile->WriteInt( waterType );
+
+	//ivan start
+	savefile->WriteBool( doubleJumpDone );
+	savefile->WriteInt( lastJumpTime );
+
+	savefile->WriteInt( nextDodgeMinTime );
+	savefile->WriteInt( nextDodgeMaxTime );
+	savefile->WriteInt( dodgeHistoryTimeout );
+
+	for( i = 0; i < DODGE_HISTORY_SIZE; i++ ) {
+		savefile->WriteInt( dodgeHistory[ i ] );
+	}
+	//ivan end
+	savefile->WriteFloat( gravityMultiplier ); //ivan
 }
 
 /*
@@ -1597,6 +1848,7 @@ idPhysics_Player::Restore
 ================
 */
 void idPhysics_Player::Restore( idRestoreGame *savefile ) {
+	int i;
 
 	idPhysics_Player_RestorePState( savefile, current );
 	idPhysics_Player_RestorePState( savefile, saved );
@@ -1626,6 +1878,20 @@ void idPhysics_Player::Restore( idRestoreGame *savefile ) {
 
 	savefile->ReadInt( (int &)waterLevel );
 	savefile->ReadInt( waterType );
+
+	//ivan start
+	savefile->ReadBool( doubleJumpDone );
+	savefile->ReadInt( lastJumpTime ); 
+
+	savefile->ReadInt( nextDodgeMinTime );
+	savefile->ReadInt( nextDodgeMaxTime );
+	savefile->ReadInt( dodgeHistoryTimeout );
+
+	for( i = 0; i < DODGE_HISTORY_SIZE; i++ ) {
+		savefile->ReadInt( dodgeHistory[ i ] );
+	}
+	//ivan end
+	savefile->ReadFloat( gravityMultiplier ); //ivan
 }
 
 /*
@@ -2042,3 +2308,20 @@ void idPhysics_Player::ReadFromSnapshot( const idBitMsgDelta &msg ) {
 		clipModel->Link( gameLocal.clip, self, 0, current.origin, clipModel->GetAxis() );
 	}
 }
+
+//ff1.1 start
+/*
+================
+idPhysics_Player::SetGravityMultiplier
+================
+*/
+void idPhysics_Player::SetGravityMultiplier( float mult ) {
+	gravityMultiplier = mult;
+}
+//ff1.1 end
+
+//ivan start
+int idPhysics_Player::GetHintForForceFields( void ){
+	return command.upmove;
+}
+//ivan end

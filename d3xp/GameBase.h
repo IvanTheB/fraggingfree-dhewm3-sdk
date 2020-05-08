@@ -53,7 +53,7 @@ If you have questions concerning this license or the applicable additional terms
 #define	GAME_VERSION			"baseDOOM-1"
 
 #define	MAX_CLIENTS				32
-#define	GENTITYNUM_BITS			12
+#define	GENTITYNUM_BITS			13 //ff1.3 - was: 12
 #define	MAX_GENTITIES			(1<<GENTITYNUM_BITS)
 #define	ENTITYNUM_NONE			(MAX_GENTITIES-1)
 #define	ENTITYNUM_WORLD			(MAX_GENTITIES-2)

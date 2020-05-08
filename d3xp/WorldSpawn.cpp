@@ -63,16 +63,21 @@ void idWorldspawn::Spawn( void ) {
 
 	g_gravity.SetFloat( spawnArgs.GetFloat( "gravity", va( "%f", DEFAULT_GRAVITY ) ) );
 
+	//ff1.3 start
+	/*
 	// disable stamina on hell levels
 	if ( spawnArgs.GetBool( "no_stamina" ) ) {
 		pm_stamina.SetFloat( 0.0f );
 	}
+	*/
+	//ff1.3 end
 
 	// load script
 	scriptname = gameLocal.GetMapName();
 	scriptname.SetFileExtension( ".script" );
 	if ( fileSystem->ReadFile( scriptname, NULL, NULL ) > 0 ) {
 		gameLocal.program.CompileFile( scriptname );
+		SetName(name); //ff1.3 - link again this instance to $world in case it was referenced by this script
 
 		// call the main function by default
 		func = gameLocal.program.FindFunction( "main" );
@@ -114,10 +119,14 @@ void idWorldspawn::Restore( idRestoreGame *savefile ) {
 
 	g_gravity.SetFloat( spawnArgs.GetFloat( "gravity", va( "%f", DEFAULT_GRAVITY ) ) );
 
+	//ff1.3 start
+	/*
 	// disable stamina on hell levels
 	if ( spawnArgs.GetBool( "no_stamina" ) ) {
 		pm_stamina.SetFloat( 0.0f );
 	}
+	*/
+	//ff1.3 end
 }
 
 /*

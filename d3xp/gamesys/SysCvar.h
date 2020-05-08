@@ -60,6 +60,7 @@ extern idCVar	g_debugScript;
 extern idCVar	g_debugMover;
 extern idCVar	g_debugTriggers;
 extern idCVar	g_debugCinematic;
+extern idCVar	g_debugVehicle; //ivan
 extern idCVar	g_stopTime;
 extern idCVar	g_armorProtection;
 extern idCVar	g_armorProtectionMP;
@@ -114,6 +115,8 @@ extern idCVar	g_dragDamping;
 extern idCVar	g_dragShowSelection;
 extern idCVar	g_dropItemRotation;
 
+//ivan start - vehicle settings moved to def
+/*
 extern idCVar	g_vehicleVelocity;
 extern idCVar	g_vehicleForce;
 extern idCVar	g_vehicleSuspensionUp;
@@ -121,6 +124,9 @@ extern idCVar	g_vehicleSuspensionDown;
 extern idCVar	g_vehicleSuspensionKCompress;
 extern idCVar	g_vehicleSuspensionDamping;
 extern idCVar	g_vehicleTireFriction;
+*/
+//ivan end
+
 #ifdef _D3XP
 extern idCVar	g_vehicleDebug;
 extern idCVar	g_debugShockwave;
@@ -179,9 +185,15 @@ extern idCVar	pm_spectatebbox;
 extern idCVar	pm_usecylinder;
 extern idCVar	pm_minviewpitch;
 extern idCVar	pm_maxviewpitch;
+//ff1.3 start
+/* was:
 extern idCVar	pm_stamina;
 extern idCVar	pm_staminathreshold;
 extern idCVar	pm_staminarate;
+*/
+extern idCVar	pm_staminaHelltimeRate;
+extern idCVar	pm_exceedingHealthRate;
+//ff1.3 end
 extern idCVar	pm_crouchheight;
 extern idCVar	pm_crouchviewheight;
 extern idCVar	pm_normalheight;
@@ -205,7 +217,8 @@ extern idCVar	pm_thirdPersonClip;
 extern idCVar	pm_thirdPerson;
 extern idCVar	pm_thirdPersonDeath;
 extern idCVar	pm_modelView;
-extern idCVar	pm_airTics;
+//extern idCVar	pm_airTics;
+extern idCVar	pm_zoomSensitReduction; //ff1.3
 
 extern idCVar	g_showPlayerShadow;
 extern idCVar	g_showHud;
@@ -246,15 +259,16 @@ extern idCVar	g_testBloomNumPasses;
 #endif
 
 #ifdef _D3XP
-extern idCVar	g_grabberHoldSeconds;
-extern idCVar	g_grabberEnableShake;
+//extern idCVar	g_grabberHoldSeconds;	//ff1.3 - removed
+//extern idCVar	g_grabberEnableShake;	//ff1.3 - removed
 extern idCVar	g_grabberRandomMotion;
 extern idCVar	g_grabberHardStop;
 extern idCVar	g_grabberDamping;
+extern idCVar	g_grabberProjDamageScale; //ff1.3
 #endif
 
 #ifdef _D3XP
-extern idCVar	g_xp_bind_run_once;
+//extern idCVar	g_xp_bind_run_once;		//ff1.3 - removed
 #endif
 
 extern idCVar	aas_test;
@@ -302,5 +316,18 @@ extern idCVar	net_clientLagOMeter;
 extern const char *si_gameTypeArgs[];
 
 extern const char *ui_skinArgs[];
+
+/////////////////
+//ff cvars
+////////////////
+
+extern idCVar ff_music_volume;
+extern idCVar ff_bind_run_once_v2;
+extern idCVar ff_showDifficultyTip;
+extern idCVar ff_showTutorialTip;
+extern idCVar ff_showWeaponOverview;
+extern idCVar ff_autoAspectRatio;
+extern idCVar ff_autoSave;
+extern idCVar ff_rideable_time;
 
 #endif /* !__SYS_CVAR_H__ */

@@ -169,6 +169,9 @@ public:
 	virtual void			Restore( idRestoreGame *savefile );
 };
 
+//ff1.3 start
+#ifdef D3XP_HELLTIME
+
 /*
 ==================
 FullscreenFX_Helltime
@@ -193,6 +196,40 @@ public:
 
 	virtual void			Restore( idRestoreGame *savefile );
 };
+
+#else
+
+/*
+==================
+FullscreenFX_Helltime
+==================
+*/
+class FullscreenFX_Helltime : public FullscreenFX {
+	const idMaterial*		material;
+
+public:
+	virtual void			Initialize();
+	virtual bool			Active();
+	virtual void			HighQuality();
+};
+
+#endif
+
+/*
+==================
+FullscreenFX_WeaponZoom
+==================
+*/
+class FullscreenFX_WeaponZoom : public FullscreenFX {
+	const idMaterial*		material;
+
+public:
+	virtual void			Initialize();
+	virtual bool			Active();
+	virtual void			HighQuality();
+};
+
+//ff1.3 end
 
 /*
 ==================
@@ -291,7 +328,7 @@ FullscreenFX_Bloom
 class FullscreenFX_Bloom : public FullscreenFX {
 	const idMaterial*		drawMaterial;
 	const idMaterial*		initMaterial;
-	const idMaterial*		currentMaterial;
+	//const idMaterial*		currentMaterial; //ff1.3 - remove warning: missing material
 
 	float					currentIntensity;
 	float					targetIntensity;
@@ -304,8 +341,6 @@ public:
 	virtual void			Save( idSaveGame *savefile );
 	virtual void			Restore( idRestoreGame *savefile );
 };
-
-
 
 /*
 ==================
@@ -407,7 +442,9 @@ public:
 
 	const idMaterial *	tunnelMaterial;		// health tunnel vision
 	const idMaterial *	armorMaterial;		// armor damage view effect
-	const idMaterial *	berserkMaterial;	// berserk effect
+	//const idMaterial *	berserkMaterial;	// berserk effect
+	const idMaterial *	invulnMaterial;		// ff1.3
+	const idMaterial *	speedMaterial;		// ff1.3
 	const idMaterial *	irGogglesMaterial;	// ir effect
 	const idMaterial *	bloodSprayMaterial; // blood spray
 	const idMaterial *	bfgMaterial;		// when targeted with BFG

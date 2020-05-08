@@ -77,6 +77,11 @@ idCVar com_forceGenericSIMD( "com_forceGenericSIMD", "0", CVAR_BOOL|CVAR_SYSTEM,
 
 #endif
 
+const float MIN_MUSIC_VOLUME			= -15.0f; //must match the min malue in mainmenu.gui
+const float DISABLED_MUSIC_VOLUME		= -60.0f;
+const int ACTION_MUSIC_END_DELAY		= 1000;
+const int CINEMATIC_AUTOSAVE_INTERVAL	= 30000; //ff1.3
+
 idRenderWorld *				gameRenderWorld = NULL;		// all drawing is done to this world
 idSoundWorld *				gameSoundWorld = NULL;		// all audio goes to this world
 
@@ -97,36 +102,75 @@ const char *idGameLocal::sufaceTypeNames[ MAX_SURFACE_TYPES ] = {
 #ifdef _D3XP
 // List of all defs used by the player that will stay on the fast timeline
 static const char* fastEntityList[] = {
-	"player_doommarine",
+		"player_doommarine",
 		"weapon_chainsaw",
 		"weapon_fists",
 		"weapon_flashlight",
 		"weapon_rocketlauncher",
 		"projectile_rocket",
+		"projectile_homingrocket", //ff1.1
+		"projectile_rocket_powerup", //ff1.1
 		"weapon_machinegun",
 		"projectile_bullet_machinegun",
+		"projectile_bullet_machinegun_sec", //ff1.3
+		"projectile_blaster_machinegun", //ff1.3
 		"weapon_pistol",
 		"projectile_bullet_pistol",
+		"projectile_flame_pistol", //ff1.3
 		"weapon_handgrenade",
 		"projectile_grenade",
+		"projectile_prox_grenade", //ff1.1
 		"weapon_bfg",
 		"projectile_bfg",
+		"projectile_bfgrail", //ff1.3
+		"projectile_bfg_powerup", //ff1.3
+		"projectile_bfg_idle", //ff1.3
 		"weapon_chaingun",
 		"projectile_chaingunbullet",
+		"projectile_chain2", //ff1.1
+		"proj_of_proj_chaingun", //ff1.1
 		"weapon_pda",
 		"weapon_plasmagun",
 		"projectile_plasmablast",
+		"projectile_plasmablast_sec", //ff1.3
 		"weapon_shotgun",
 		"projectile_bullet_shotgun",
-		"weapon_soulcube",
-		"projectile_soulblast",
+		"projectile_bullet_shotgun_sec", //ff1.3
+		"projectile_blaster_shotgun", //ff1.3
+		//"weapon_soulcube",
+		//"projectile_soulblast",
 		"weapon_shotgun_double",
 		"projectile_shotgunbullet_double",
+		"projectile_flame_shotgun_double", //ff1.3
 		"weapon_grabber",
-		"weapon_bloodstone_active1",
-		"weapon_bloodstone_active2",
-		"weapon_bloodstone_active3",
-		"weapon_bloodstone_passive",
+		"projectile_grabber_invul", //ff1.1
+		"projectile_beamblast", //ff1.1
+		"projectile_lightning_weapon", //ff1.1
+		//"weapon_bloodstone_active1", //ff1.3 - removed
+		//"weapon_bloodstone_active2", //ff1.3 - removed
+		//"weapon_bloodstone_active3", //ff1.3 - removed
+		//"weapon_bloodstone_passive", //ff1.3 - removed
+		"weapon_bloodstone_skull", //ff1.1
+		"weapon_bloodstone_possession", //ff1.3
+		"projectile_soulpossession", //ff1.3
+		"weapon_linker", //ff1.1
+		"weapon_shockrifle", //ff1.1
+		"projectile_shockrail", //ff1.3
+		"projectile_shock_secondary", //ff1.1
+		"projectile_shock_pw", //ff1.3
+		"weapon_dualcore", //ff1.1
+		"projectile_dualcorebullet", //ff1.1
+		"projectile_dualcorebullet_mini", //ff1.1
+		"projectile_dualcoreball", //ff1.3
+		"weapon_railgun", //ff1.1
+		"projectile_railgun", //ff1.3
+		"weapon_soul2cube", //ff1.1
+		"projectile_soulblast", //ff1.3
+		"projectile_soulexplosion", //ff1.3
+		"weapon_flamethrower", //ff1.1
+		"projectile_flamethrower", //ff1.3
+		"projectile_flamegrenade", //ff1.3
+		//"projectile_flamewall", //ff1.3
 		NULL };
 #endif
 /*
@@ -200,6 +244,7 @@ idGameLocal::idGameLocal
 ============
 */
 idGameLocal::idGameLocal() {
+	mapList = NULL; //ff1.1
 	Clear();
 }
 
@@ -258,12 +303,14 @@ void idGameLocal::Clear( void ) {
 	aasNames.Clear();
 	lastAIAlertEntity = NULL;
 	lastAIAlertTime = 0;
+	lastAIAlertPos.Zero(); //ff1.3
 	spawnArgs.Clear();
 	gravity.Set( 0, 0, -1 );
 	playerPVS.h = -1;
 	playerConnectedAreas.h = -1;
 	gamestate = GAMESTATE_UNINITIALIZED;
 	skipCinematic = false;
+	cinematicCheckpoint = false; //ff1.3
 	influenceActive = false;
 
 	localClientNum = 0;
@@ -296,6 +343,36 @@ void idGameLocal::Clear( void ) {
 
 	ResetSlowTimeVars();
 #endif
+
+	//ff1.1 start
+	if ( mapList ) {
+		uiManager->FreeListGUI( mapList );
+		mapList = NULL;
+	}
+	//ff1.1 end
+
+	//ff1.3 start
+	memset( &mapStats, 0, sizeof( mapStats ) );
+
+	mapInfo.title.Clear();
+	mapInfo.img.Clear();
+	mapInfo.noStats = false;
+	mapInfo.noDefaultPda = false;
+
+	campaignInfo.title.Clear();
+	campaignInfo.img.Clear();
+	campaignInfo.maps = 0;
+
+	lastAICoopEnemy				= NULL;
+	ambientMusicEntity			= NULL;
+	actionMusicEntity			= NULL;
+	actionMusicAvailable		= false;
+	actionMusicEnabled			= false;
+	actionMusicAutoStop			= false;
+	actionMusicEndTime			= 0;
+	nextCinematicAutosaveTime	= 0;
+	autoSaving					= false;
+	//ff1.3 end
 }
 
 /*
@@ -351,8 +428,8 @@ void idGameLocal::Init( void ) {
 
 	InitConsoleCommands();
 
-
-#ifdef _D3XP
+//ff comment
+/* #ifdef _D3XP
 	if(!g_xp_bind_run_once.GetBool()) {
 		//The default config file contains remapped controls that support the XP weapons
 		//We want to run this once after the base doom config file has run so we can
@@ -361,7 +438,17 @@ void idGameLocal::Init( void ) {
 		cmdSystem->BufferCommandText( CMD_EXEC_APPEND, "seta g_xp_bind_run_once 1\n" );
 		cmdSystem->ExecuteCommandBuffer();
 	}
-#endif
+#endif */
+	//ff start
+	if (!ff_bind_run_once_v2.GetBool()) {
+		//The default config file contains remapped controls that support the FF zoom/slowmo/grabber
+		//We want to run this once after the base doom config file has run so we can
+		//have the correct ff binds
+		cmdSystem->BufferCommandText( CMD_EXEC_APPEND, "exec default.cfg\n" );
+		cmdSystem->BufferCommandText( CMD_EXEC_APPEND, "seta ff_bind_run_once_v2 1\n" );
+		cmdSystem->ExecuteCommandBuffer();
+	}
+	//ff end
 
 	// load default scripts
 	program.Startup( SCRIPT_DEFAULT );
@@ -403,10 +490,25 @@ void idGameLocal::Init( void ) {
 		kv = dict->MatchPrefix( "type", kv );
 	}
 
+	//ff1.3 start - init map number by name
+	int mapNum = fileSystem->GetNumMaps();
+	for ( i = 0; i < mapNum; i++ ) {
+		dict = fileSystem->GetMapDecl( i );
+		if ( dict ) {
+			//get the name
+			//Printf("init map path '%s' found\n", dict->GetString( "path" )); //"ff/stats"
+			mapIndexByName.Set( va("maps/%s.map", dict->GetString( "path" )), i);
+		}
+	}
+	//ff1.3 end
+
 	gamestate = GAMESTATE_NOMAP;
 
 	Printf( "...%d aas types\n", aasList.Num() );
 }
+
+
+
 
 /*
 ===========
@@ -426,6 +528,10 @@ void idGameLocal::Shutdown( void ) {
 	mpGame.Shutdown();
 
 	MapShutdown();
+
+	//ff1.3 start
+	mapIndexByName.Clear();
+	//ff1.3 end
 
 	aasList.DeleteContents( true );
 	aasNames.Clear();
@@ -590,6 +696,7 @@ void idGameLocal::SaveGame( idFile *f ) {
 	savegame.WriteInt( cinematicMaxSkipTime );
 	savegame.WriteBool( inCinematic );
 	savegame.WriteBool( skipCinematic );
+	savegame.WriteBool( cinematicCheckpoint ); //ff1.3
 
 	savegame.WriteBool( isMultiplayer );
 	savegame.WriteInt( gameType );
@@ -646,6 +753,7 @@ void idGameLocal::SaveGame( idFile *f ) {
 
 	lastAIAlertEntity.Save( &savegame );
 	savegame.WriteInt( lastAIAlertTime );
+	savegame.WriteVec3( lastAIAlertPos ); //ff1.3
 
 	savegame.WriteDict( &spawnArgs );
 
@@ -661,6 +769,28 @@ void idGameLocal::SaveGame( idFile *f ) {
 	savegame.WriteBool( influenceActive );
 	savegame.WriteInt( nextGibTime );
 
+	//ivan start
+
+	//mapInfo and campaignInfo are not saved because are loaded with the map
+
+	savegame.WriteInt(mapStats.time);
+	savegame.WriteInt(mapStats.skill);
+	savegame.WriteBool(mapStats.skillChanged);
+	savegame.WriteInt(mapStats.numSecrets);
+	savegame.WriteInt(mapStats.numGameCovers);
+
+	lastAICoopEnemy.Save( &savegame );
+	ambientMusicEntity.Save( &savegame );
+	actionMusicEntity.Save( &savegame );
+
+	savegame.WriteBool( actionMusicAvailable );
+	savegame.WriteBool( actionMusicEnabled );
+	savegame.WriteBool( actionMusicAutoStop );
+	savegame.WriteInt( actionMusicEndTime );
+	savegame.WriteInt( nextCinematicAutosaveTime );
+	//autoSaving not saved
+	//ivan end
+
 	// spawnSpots
 	// initialSpots
 	// currentInitialSpot
@@ -672,6 +802,8 @@ void idGameLocal::SaveGame( idFile *f ) {
 	idEvent::Save( &savegame );
 
 	savegame.Close();
+
+	autoSaving = false; //ff1.3
 }
 
 /*
@@ -942,6 +1074,8 @@ void idGameLocal::LoadMap( const char *mapName, int randseed ) {
 	gameSoundWorld->SetSlowmo( false );
 #endif
 
+	cvarSystem->SetCVarFloat( "timescale", 1.0f ); //ff1.3
+
 	InitAsyncNetwork();
 
 	if ( !sameMap || ( mapFile && mapFile->NeedsReload() ) ) {
@@ -957,6 +1091,12 @@ void idGameLocal::LoadMap( const char *mapName, int randseed ) {
 		}
 	}
 	mapFileName = mapFile->GetName();
+
+	//ff1.3 start - get map info from its def
+	LoadMapInfo( mapFileName, mapInfo );
+	LoadCampaignInfo( mapFileName, campaignInfo );
+	//Printf("mapFileName = %s, mapName = %s\n", mapFileName.c_str(), mapName); //"maps/aitest.map"
+	//ff1.3 end
 
 	// load the collision map
 	collisionModelManager->LoadMap( mapFile );
@@ -997,12 +1137,25 @@ void idGameLocal::LoadMap( const char *mapName, int randseed ) {
 
 	lastAIAlertEntity = NULL;
 	lastAIAlertTime = 0;
+	lastAIAlertPos.Zero(); //ff1.3
 
 	previousTime	= 0;
 	time			= 0;
 	framenum		= 0;
 	sessionCommand = "";
 	nextGibTime		= 0;
+
+	//ivan start
+	lastAICoopEnemy				= NULL;
+	ambientMusicEntity			= NULL;
+	actionMusicEntity			= NULL;
+	actionMusicAvailable		= false;
+	actionMusicEnabled			= false;
+	actionMusicAutoStop			= false;
+	actionMusicEndTime			= 0;
+	nextCinematicAutosaveTime	= CINEMATIC_AUTOSAVE_INTERVAL; //don't autosave at the beginning of the map
+	autoSaving					= false;
+	//ivan end
 
 #ifdef _D3XP
 	portalSkyEnt			= NULL;
@@ -1022,6 +1175,7 @@ void idGameLocal::LoadMap( const char *mapName, int randseed ) {
 	spawnArgs.Clear();
 
 	skipCinematic = false;
+	cinematicCheckpoint = false; //ff1.3
 	inCinematic = false;
 	cinematicSkipTime = 0;
 	cinematicStopTime = 0;
@@ -1042,6 +1196,15 @@ void idGameLocal::LoadMap( const char *mapName, int randseed ) {
 
 	// cache miscellanious media references
 	FindEntityDef( "preCacheExtras", false );
+
+	//ff1.3 start - cache map image
+	if ( mapInfo.img.Length() ) {
+		declManager->FindType( DECL_MATERIAL, mapInfo.img );
+	}
+	if ( campaignInfo.img.Length() ) {
+		declManager->FindType( DECL_MATERIAL, campaignInfo.img );
+	}
+	//ff1.3 end
 
 	if ( !sameMap ) {
 		mapFile->RemovePrimitiveData();
@@ -1330,6 +1493,29 @@ void idGameLocal::InitFromNewMap( const char *mapName, idRenderWorld *renderWorl
 	animationLib.FlushUnusedAnims();
 
 	gamestate = GAMESTATE_ACTIVE;
+
+	InitIntroGui(); //ff1.3
+}
+
+/*
+=================
+idGameLocal::InitIntroGui
+=================
+*/
+void idGameLocal::InitIntroGui( void ) {
+	int introType;
+
+	idUserInterface *intro = uiManager->FindGui( "guis/intro.gui", true, false, true );
+	if( intro ){
+		idEntity *startEnt = FindEntityUsingDef( NULL, "info_player_start" );
+		if ( startEnt ) {
+			introType = startEnt->spawnArgs.GetInt( "intro_type" );
+		} else {
+			introType = 0;
+		}
+
+		intro->SetStateInt( "intro_type", introType );
+	}
 }
 
 /*
@@ -1469,6 +1655,7 @@ bool idGameLocal::InitFromSaveGame( const char *mapName, idRenderWorld *renderWo
 	savegame.ReadInt( cinematicMaxSkipTime );
 	savegame.ReadBool( inCinematic );
 	savegame.ReadBool( skipCinematic );
+	savegame.ReadBool( cinematicCheckpoint ); //ff1.3
 
 	savegame.ReadBool( isMultiplayer );
 	savegame.ReadInt( (int &)gameType );
@@ -1545,6 +1732,7 @@ bool idGameLocal::InitFromSaveGame( const char *mapName, idRenderWorld *renderWo
 
 	lastAIAlertEntity.Restore( &savegame );
 	savegame.ReadInt( lastAIAlertTime );
+	savegame.ReadVec3( lastAIAlertPos ); //ff1.3
 
 	savegame.ReadDict( &spawnArgs );
 
@@ -1559,6 +1747,28 @@ bool idGameLocal::InitFromSaveGame( const char *mapName, idRenderWorld *renderWo
 
 	savegame.ReadBool( influenceActive );
 	savegame.ReadInt( nextGibTime );
+
+	//ivan start
+
+	//mapInfo are not saved because are loaded with the map
+
+	savegame.ReadInt(mapStats.time);
+	savegame.ReadInt(mapStats.skill);
+	savegame.ReadBool(mapStats.skillChanged);
+	savegame.ReadInt(mapStats.numSecrets);
+	savegame.ReadInt(mapStats.numGameCovers);
+
+	lastAICoopEnemy.Restore( &savegame );
+	ambientMusicEntity.Restore( &savegame );
+	actionMusicEntity.Restore( &savegame );
+
+	savegame.ReadBool( actionMusicAvailable );
+	savegame.ReadBool( actionMusicEnabled );
+	savegame.ReadBool( actionMusicAutoStop );
+	savegame.ReadInt( actionMusicEndTime );
+	savegame.ReadInt( nextCinematicAutosaveTime );
+	//autoSaving not saved
+	//ivan end
 
 	// spawnSpots
 	// initialSpots
@@ -1663,6 +1873,18 @@ void idGameLocal::MapShutdown( void ) {
 	ShutdownAsyncNetwork();
 
 	mapFileName.Clear();
+
+	//ff1.3 start
+	memset( &mapStats, 0, sizeof( mapStats ) );
+
+	mapInfo.title.Clear();
+	mapInfo.img.Clear();
+	mapInfo.noStats = false;
+	mapInfo.noDefaultPda = false;
+
+	campaignInfo.title.Clear();
+	campaignInfo.img.Clear();
+	//ff1.3 end
 
 	gameRenderWorld = NULL;
 	gameSoundWorld = NULL;
@@ -2445,6 +2667,10 @@ gameReturn_t idGameLocal::RunFrame( const usercmd_t *clientCmds ) {
 		}
 #endif
 
+		if ( g_skill.IsModified() ) { //ff1.3
+			SetSkill( g_skill.GetInteger(), false );
+		}
+
 		// make sure the random number counter is used each frame so random events
 		// are influenced by the player's actions
 		random.RandomInt();
@@ -2474,6 +2700,9 @@ gameReturn_t idGameLocal::RunFrame( const usercmd_t *clientCmds ) {
 
 		// update our gravity vector if needed.
 		UpdateGravity();
+
+		//ff1.3 - music volume
+		UpdateMusicVolume();
 
 		// create a merged pvs for all players
 		SetupPlayerPVS();
@@ -2531,6 +2760,8 @@ gameReturn_t idGameLocal::RunFrame( const usercmd_t *clientCmds ) {
 		RunTimeGroup2();
 #endif
 
+		//gameLocal.Printf("num activeEntities: %d \n",num );
+
 		// remove any entities that have stopped thinking
 		if ( numEntitiesToDeactivate ) {
 			idEntity *next_ent;
@@ -2584,7 +2815,7 @@ gameReturn_t idGameLocal::RunFrame( const usercmd_t *clientCmds ) {
 		if ( !isMultiplayer && player ) {
 			ret.health = player->health;
 			ret.heartRate = player->heartRate;
-			ret.stamina = idMath::FtoiFast( player->stamina );
+			ret.stamina = idMath::FtoiFast( player->staminaHelltime ); //ff1.3 - was: stamina
 			// combat is a 0-100 value based on lastHitTime and lastDmgTime
 			// each make up 50% of the time spread over 10 seconds
 			ret.combat = 0;
@@ -2608,12 +2839,17 @@ gameReturn_t idGameLocal::RunFrame( const usercmd_t *clientCmds ) {
 			skipCinematic = false;
 			break;
 		}
-	} while( ( inCinematic || ( time < cinematicStopTime ) ) && skipCinematic );
+
+	} while( ( inCinematic || ( time < cinematicStopTime ) ) && skipCinematic && !cinematicCheckpoint );
 
 	ret.syncNextGameFrame = skipCinematic;
 	if ( skipCinematic ) {
 		soundSystem->SetMute( false );
 		skipCinematic = false;
+	}
+
+	if ( cinematicCheckpoint ) { //ff1.3
+		cinematicCheckpoint = false;
 	}
 
 	// show any debug info for this frame
@@ -2645,7 +2881,7 @@ void idGameLocal::CalcFov( float base_fov, float &fov_x, float &fov_y ) const {
 	float	ratio_x;
 	float	ratio_y;
 
-	// first, calculate the vertical fov based on a 640x480 view
+	// first, calculate the	 vertical fov based on a 640x480 view
 	x = 640.0f / tan( base_fov / 360.0f * idMath::PI );
 	y = atan2( 480.0f, x );
 	fov_y = y * 360.0f / idMath::PI;
@@ -2686,6 +2922,12 @@ void idGameLocal::CalcFov( float base_fov, float &fov_x, float &fov_y ) const {
 		// 16:10
 		ratio_x = 16.0f;
 		ratio_y = 10.0f;
+		break;
+
+	case 3 : //ff1.3
+		// 5:4
+		ratio_x = 5.0f;
+		ratio_y = 4.0f;
 		break;
 	}
 
@@ -2742,6 +2984,7 @@ escReply_t idGameLocal::HandleESC( idUserInterface **gui ) {
 	}
 	idPlayer *player = GetLocalPlayer();
 	if ( player ) {
+		//Printf("idGameLocal::HandleESC\n");
 		if ( player->HandleESC() ) {
 			return ESC_IGNORE;
 		} else {
@@ -2780,7 +3023,188 @@ const char* idGameLocal::HandleGuiCommands( const char *menuCommand ) {
 idGameLocal::HandleMainMenuCommands
 ================
 */
-void idGameLocal::HandleMainMenuCommands( const char *menuCommand, idUserInterface *gui ) { }
+void idGameLocal::HandleMainMenuCommands( const char *menuCommand, idUserInterface *gui ) {
+	//ff1.3 start
+
+	//Printf("HandleMainMenuCommand %s\n", menuCommand);
+
+	//setup
+	if ( !mapList ) {
+		int i;
+		const idDict *mapDict;
+
+		mapList = uiManager->AllocListGUI();
+		mapList->Config( gui, "FFmapList" );
+
+		//loop maps
+		for ( i = 0; i < fileSystem->GetNumMaps(); i++ ) {
+			mapDict = fileSystem->GetMapDecl( i );
+			if ( mapDict && mapDict->GetBool( "mainmenu" ) ) {
+				const char *campaignName;
+				const idDict *campaignDict = FindCampaignDictForMapDict( mapDict );
+				if ( campaignDict && campaignDict->GetString( "name", NULL, &campaignName ) && (campaignName[0] != '\0') ) {
+					//Printf("map %s found\n", campaignName);
+					mapList->Add( i, campaignName );
+				}
+			}
+		}
+
+		mapList->SetSelection( (i > 0) ? 0 : -1 );
+	}
+
+	//if we are here mapList is initialized and != null
+
+	if (!idStr::Icmp( menuCommand, "updCustomResFromMode" ) ) {
+		UpdCustomResFromMode();
+	} else if (!idStr::Icmp( menuCommand, "updAspectRatio" ) ) {
+		UpdAspectRatio();
+	} else if (!idStr::Icmp( menuCommand, "showSelectedMap" ) ) {
+		UpdSelectedMapInfo( gui );
+	} else if (!idStr::Icmp( menuCommand, "checkMenuTips" ) ) {
+		gui->SetStateBool( "showTutorialTip", ff_showTutorialTip.GetBool() );
+		gui->SetStateBool( "showDifficultyTip", ff_showDifficultyTip.GetBool() );
+	} else if (!idStr::Icmp( menuCommand, "disableTutorialTip" ) ) {
+		ff_showTutorialTip.SetBool( false );
+		gui->SetStateBool( "showTutorialTip", false );
+	} else if (!idStr::Icmp( menuCommand, "disableDifficultyTip" ) ) {
+		ff_showDifficultyTip.SetBool( false );
+		gui->SetStateBool( "showDifficultyTip", false );
+	} else if (!idStr::Icmp( menuCommand, "setSkillCvarFromGui" ) ) {
+		SetSkill( gui->GetStateInt( "skill" ), false );
+	} else if (!idStr::Icmp( menuCommand, "setSkillGuiFromCvar" ) ) {
+		gui->SetStateInt( "skill", g_skill.GetInteger() );
+	}
+	//ff1.3 end
+}
+
+/*
+================
+idGameLocal::UpdAspectRatio
+================
+*/
+void idGameLocal::UpdAspectRatio( void ) {
+	int ratioType;
+	int rMode;
+
+	if( !ff_autoAspectRatio.GetBool() ){
+		return;
+	}
+
+	rMode = cvarSystem->GetCVarInteger( "r_mode" );
+	if( rMode >= 0 ){
+		switch( rMode ) {
+		case 3 :
+		case 4 :
+		case 5 :
+		case 6 :
+		case 8 :
+			ratioType = 0; // 4/3
+			break;
+		case 7 :
+			ratioType = 3; // 5/4
+			break;
+		default:
+			Warning("Could not set r_aspectRatio for r_mode %d", rMode);
+			return;
+		}
+	} else {
+		int width = cvarSystem->GetCVarInteger( "r_customwidth" );
+		int height = cvarSystem->GetCVarInteger( "r_customheight" );
+		float ratio = width / (float) height;
+
+		if ( ratio < 31 / (float) 24 ) {
+			ratioType = 3; // 5/4
+		} else if ( ratio < 88 / (float) 60 ) {
+			ratioType = 0; // 4/3
+		} else if ( ratio < 304 / (float) 180 ) {
+			ratioType = 2; // 16/10
+		} else {
+			ratioType = 1; // 16/9
+		}
+	}
+
+	//gameLocal.Printf("ff_autoAspectRatio enabled -> r_aspectRatio set to %d\n", ratioType);
+	r_aspectRatio.SetInteger(ratioType);
+}
+
+/*
+================
+idGameLocal::UpdCustomResFromMode
+================
+*/
+void idGameLocal::UpdCustomResFromMode( void ) {
+	int rMode = cvarSystem->GetCVarInteger( "r_mode" );
+	if( rMode > 0 ){
+		int width;
+		int height;
+
+		switch( rMode ) {
+		case 3 :
+			width = 640;
+			height = 480;
+			break;
+
+		case 4 :
+			width = 800;
+			height = 600;
+			break;
+
+		case 5 :
+			width = 1024;
+			height = 768;
+			break;
+
+		case 6 :
+			width = 1152;
+			height = 864;
+			break;
+
+		case 7 :
+			width = 1280;
+			height = 1024;
+			break;
+
+		case 8 :
+			width = 1600;
+			height = 1200;
+			break;
+
+		default:
+			Warning("Could not set r_customwidth and r_customheight to match r_mode %d. Resolution diplayed in the menu could be wrong.", rMode);
+			return;
+		}
+
+		cvarSystem->SetCVarInteger( "r_customwidth", width );
+		cvarSystem->SetCVarInteger( "r_customheight", height );
+	}
+}
+
+
+/*
+================
+idGameLocal::UpdSelectedMapInfo
+================
+*/
+void idGameLocal::UpdSelectedMapInfo( idUserInterface *gui ) {
+	int mapNum = mapList->GetSelection( NULL, 0 );
+	const idDict *mapDict = ( mapNum >= 0 ) ? fileSystem->GetMapDecl( mapNum ) : NULL;
+	const idDict *campaignDict = FindCampaignDictForMapDict( mapDict );
+
+	//set infos
+	if( mapDict && campaignDict ){
+		gui->SetStateString( "selected_map_path", mapDict->GetString( "path" ) );
+		gui->SetStateString( "campaign_img", campaignDict->GetString( "img_wide", campaignDict->GetString( "img", "guis/assets/splash/launch.map" ) ) );
+		gui->SetStateString( "campaign_name", campaignDict->GetString( "name" ) );
+		gui->SetStateInt( "campaign_maps", campaignDict->GetInt( "maps", "1") );
+		gui->SetStateString( "campaign_author", campaignDict->GetString( "author" ) );
+	} else {
+		gui->SetStateString( "selected_map_path", "" );
+		gui->SetStateString( "campaign_img", "" );
+		gui->SetStateString( "campaign_name", "" );
+		gui->SetStateInt( "campaign_maps", 1 );
+		gui->SetStateString( "campaign_author", "" );
+	}
+}
 
 /*
 ================
@@ -3005,7 +3429,8 @@ void idGameLocal::RunDebugInfo( void ) {
 	}
 
 	if ( g_showCollisionModels.GetBool() ) {
-		clip.DrawClipModels( player->GetEyePosition(), g_maxShowDistance.GetFloat(), pm_thirdPerson.GetBool() ? NULL : player );
+		//clip.DrawClipModels( player->GetEyePosition(), g_maxShowDistance.GetFloat(), pm_thirdPerson.GetBool() ? NULL : player );
+		clip.DrawClipModels( player->GetEyePosition(), g_maxShowDistance.GetFloat(), player->UseThirdPersonCamera() ? NULL : player ); //ivan
 	}
 
 	if ( g_showCollisionTraces.GetBool() ) {
@@ -3306,7 +3731,42 @@ bool idGameLocal::SpawnEntityDef( const idDict &args, idEntity **ent, bool setDe
 		return false;
 	}
 
-	spawnArgs.SetDefaults( &def->dict );
+	//ff1.3 start
+	//was: spawnArgs.SetDefaults( &def->dict );
+	if ( spawnArgs.GetBool(RIDEABLE_MODE_SPAWNARG) ) {
+		//Warning( "rideable_mode" );
+		const char *rideableDefName;
+
+		//get def_rideable from spawnArgs first (in case it's explicity set), then from the def
+		if ( !spawnArgs.GetString( "def_rideable", NULL, &rideableDefName ) ) {
+			def->dict.GetString( "def_rideable", NULL, &rideableDefName );
+		}
+
+		const idDeclEntityDef *rideableDef = FindEntityDef( rideableDefName, false );
+		if ( !rideableDef ) {
+			Warning( "Unknown classname '%s'%s.", rideableDefName, error.c_str() );
+			return false;
+		}
+
+		/*
+		//health should be at least RIDEABLE_DEFAULT_HEALTH, unless explicitly defined in spawnArgs or def_rideable
+		if ( !spawnArgs.FindKey( "health" ) && !rideableDef->dict.FindKey( "health" ) ) {
+			if ( def->dict.GetInt("health", 0) < RIDEABLE_DEFAULT_HEALTH) {
+				spawnArgs.SetInt("health", RIDEABLE_DEFAULT_HEALTH);
+			}
+		}
+		*/
+
+		//keys from "def_rideable" have higher priority than standard ones
+		spawnArgs.SetDefaults( &rideableDef->dict );
+		spawnArgs.SetDefaults( &def->dict );
+		spawnArgs.Delete("use_aas"); //disable aas to allow bigger bbox and better performaces
+	} else {
+		spawnArgs.SetDefaults( &def->dict );
+	}
+	//ff1.3 end
+
+
 
 #ifdef _D3XP
 	if ( !spawnArgs.FindKey( "slowmo" ) ) {
@@ -3419,6 +3879,7 @@ bool idGameLocal::InhibitEntitySpawn( idDict &spawnArgs ) {
 
 
 	const char *name;
+	/* ff1.3 - always spawn medkits
 	if ( g_skill.GetInteger() == 3 ) {
 		name = spawnArgs.GetString( "classname" );
 		// _D3XP :: remove moveable medkit packs also
@@ -3428,6 +3889,7 @@ bool idGameLocal::InhibitEntitySpawn( idDict &spawnArgs ) {
 			result = true;
 		}
 	}
+	*/
 
 	if ( gameLocal.isMultiplayer ) {
 		name = spawnArgs.GetString( "classname" );
@@ -3444,7 +3906,7 @@ bool idGameLocal::InhibitEntitySpawn( idDict &spawnArgs ) {
 idGameLocal::SetSkill
 ================
 */
-void idGameLocal::SetSkill( int value ) {
+void idGameLocal::SetSkill( int value, bool initialValue ) {
 	int skill_level;
 
 	if ( value < 0 ) {
@@ -3456,6 +3918,16 @@ void idGameLocal::SetSkill( int value ) {
 	}
 
 	g_skill.SetInteger( skill_level );
+
+	//ff1.3 start
+	g_skill.ClearModified();
+
+	if ( !initialValue && mapStats.skill != skill_level ) {
+		mapStats.skillChanged = true;
+	}
+
+	mapStats.skill = skill_level;
+	//ff1.3 end
 }
 
 /*
@@ -3491,7 +3963,12 @@ void idGameLocal::SpawnMapEntities( void ) {
 		return;
 	}
 
-	SetSkill( g_skill.GetInteger() );
+	SetSkill( g_skill.GetInteger(), true );
+
+	//ff1.3 start - number of secrets and covers will be updated by the target entities on spawn
+	mapStats.numSecrets = 0;
+	mapStats.numGameCovers = 0;
+	//ff1.3 end
 
 	numEntities = mapFile->GetNumEntities();
 	if ( numEntities == 0 ) {
@@ -3787,6 +4264,34 @@ idGameLocal::RequirementMet
 */
 bool idGameLocal::RequirementMet( idEntity *activator, const idStr &requires, int removeItem ) {
 	if ( requires.Length() ) {
+		//ff1.3 start
+		idPlayer *player;
+
+		if ( activator->IsType( idPlayer::Type ) ) {
+			player = static_cast<idPlayer *>( activator );
+		}else if ( activator->IsType( idAI_Rideable::Type ) ) {
+			player = static_cast< idAI_Rideable * >( activator )->GetDriver();
+		}else if ( activator->IsType( idAFEntity_Vehicle::Type ) ) {
+			player = static_cast< idAFEntity_Vehicle * >( activator )->GetDriver();
+		} else {
+			player = NULL;
+		}
+
+		if ( !player ) {
+			return false; //NOTE: different behaviour than original code, but this seems safer.
+		}
+
+		idDict *item = player->FindInventoryItem( requires );
+		if ( item ) {
+			if ( removeItem ) {
+				player->RemoveInventoryItem( item );
+			}
+			return true;
+		} else {
+			return false;
+		}
+
+		/* was:
 		if ( activator->IsType( idPlayer::Type ) ) {
 			idPlayer *player = static_cast<idPlayer *>(activator);
 			idDict *item = player->FindInventoryItem( requires );
@@ -3799,6 +4304,8 @@ bool idGameLocal::RequirementMet( idEntity *activator, const idStr &requires, in
 				return false;
 			}
 		}
+		*/
+		//ff1.3 end
 	}
 
 	return true;
@@ -3809,11 +4316,19 @@ bool idGameLocal::RequirementMet( idEntity *activator, const idStr &requires, in
 idGameLocal::AlertAI
 ============
 */
-void idGameLocal::AlertAI( idEntity *ent ) {
-	if ( ent && ent->IsType( idActor::Type ) ) {
-		// alert them for the next frame
-		lastAIAlertTime = time + msec;
-		lastAIAlertEntity = static_cast<idActor *>( ent );
+void idGameLocal::AlertAI( idEntity *ent, const idVec3 &pos ) { //ff1.3 - pos added
+	if ( ent ){
+		if( ent->IsType( idActor::Type ) ) {
+			// alert them for the next frame
+			lastAIAlertTime = time + msec;
+			lastAIAlertEntity = static_cast<idActor *>( ent );
+			lastAIAlertPos = pos; //ff1.3
+		}else if( ent->IsType( idAFEntity_Vehicle::Type ) ) {
+			// alert them for the next frame
+			lastAIAlertTime = time + msec;
+			lastAIAlertEntity = static_cast<idAFEntity_Vehicle *>( ent )->GetDriver();
+			lastAIAlertPos = pos; //ff1.3
+		}
 	}
 }
 
@@ -3838,12 +4353,24 @@ idActor *idGameLocal::GetAlertEntity( void ) {
 	return NULL;
 }
 
+//ff1.3 start
+/*
+============
+idGameLocal::GetAlertPos
+============
+*/
+const idVec3 &idGameLocal::GetAlertPos( void ) const {
+	return lastAIAlertPos;
+}
+//ff1.3 end
+
+
 /*
 ============
 idGameLocal::RadiusDamage
 ============
 */
-void idGameLocal::RadiusDamage( const idVec3 &origin, idEntity *inflictor, idEntity *attacker, idEntity *ignoreDamage, idEntity *ignorePush, const char *damageDefName, float dmgPower ) {
+void idGameLocal::RadiusDamage( const idVec3 &origin, idEntity *inflictor, idEntity *attacker, idEntity *ignoreDamage, idEntity *ignorePush, const char *damageDefName, float dmgPower, bool addProjectileHit ) {
 	float		dist, damageScale, attackerDamageScale, attackerPushScale;
 	idEntity *	ent;
 	idEntity *	entityList[ MAX_GENTITIES ];
@@ -3932,6 +4459,14 @@ void idGameLocal::RadiusDamage( const idVec3 &origin, idEntity *inflictor, idEnt
 			if ( ent == attacker || ( ent->IsType( idAFAttachment::Type ) && static_cast<idAFAttachment*>(ent)->GetBody() == attacker ) ) {
 				damageScale *= attackerDamageScale;
 			}
+			//ff1.3 start - radius dmg may count as hit
+			else if ( addProjectileHit && ent->IsType( idActor::Type ) ) {
+				addProjectileHit = false; //done
+				if ( attacker && attacker->IsType( idPlayer::Type ) ) {
+					static_cast<idPlayer*>( attacker )->AddProjectileHits( 1, 0 ); //NOTE: hitCountGroupId not handled for radius damage
+				}
+			}
+			//ff1.3 end
 
 			ent->Damage( inflictor, attacker, dir, damageDefName, damageScale, INVALID_JOINT );
 		}
@@ -3939,7 +4474,12 @@ void idGameLocal::RadiusDamage( const idVec3 &origin, idEntity *inflictor, idEnt
 
 	// push physics objects
 	if ( push ) {
-		RadiusPush( origin, radius, push * dmgPower, attacker, ignorePush, attackerPushScale, false );
+		//ff1.3 start - AI uses dmgPower to multiply only damage
+		if ( !attacker || !attacker->IsType( idAI::Type ) ) {
+			push = push * dmgPower;
+		}
+		//ff1.3 end
+		RadiusPush( origin, radius, push /*was: push * dmgPower*/, attacker, ignorePush, attackerPushScale, false );
 	}
 }
 
@@ -4157,6 +4697,7 @@ idGameLocal::SetCamera
 =============
 */
 void idGameLocal::SetCamera( idCamera *cam ) {
+	bool forceAiRemoval; //ff1.3
 	int i;
 	idEntity *ent;
 	idAI *ai;
@@ -4169,6 +4710,16 @@ void idGameLocal::SetCamera( idCamera *cam ) {
 
 	camera = cam;
 	if ( camera ) {
+
+		//ff1.3 start - autosave on cinematics
+		if( !inCinematic && time > nextCinematicAutosaveTime && ff_autoSave.GetBool() 
+			&& camera->spawnArgs.GetBool( "autosave", "1" )
+			&& !camera->spawnArgs.GetBool( "disconnect" ) ){
+
+			AutoSave();
+		}
+		//ff1.3 end
+
 		inCinematic = true;
 
 		if ( skipCinematic && camera->spawnArgs.GetBool( "disconnect" ) ) {
@@ -4178,6 +4729,14 @@ void idGameLocal::SetCamera( idCamera *cam ) {
 			skipCinematic = false;
 			return;
 		}
+
+		/*
+		//ff1.3 start - works but not needed
+		if ( skipCinematic && camera->spawnArgs.GetBool( "stopSkip", "1" ) ) {
+			skipCinematic = false;
+		}
+		//ff1.3 end
+		*/
 
 		if ( time > cinematicStopTime ) {
 			cinematicSkipTime = time + CINEMATIC_SKIP_DELAY;
@@ -4195,26 +4754,50 @@ void idGameLocal::SetCamera( idCamera *cam ) {
 		}
 
 		if ( !cam->spawnArgs.GetBool( "ignore_enemies" ) ) {
+			forceAiRemoval = cam->spawnArgs.GetBool( "force_ai_removal" ); //ff1.3
+
 			// kill any active monsters that are enemies of the player
 			for ( ent = spawnedEntities.Next(); ent != NULL; ent = ent->spawnNode.Next() ) {
-				if ( ent->cinematic || ent->fl.isDormant ) {
-					// only kill entities that aren't needed for cinematics and aren't dormant
-					continue;
-				}
-
-				if ( ent->IsType( idAI::Type ) ) {
+				//ff1.3 start - remove AIs for final cinematics
+				if ( forceAiRemoval && !ent->fl.isDormant && ent->IsType( idAI::Type ) ) {
 					ai = static_cast<idAI *>( ent );
-					if ( !ai->GetEnemy() || !ai->IsActive() ) {
-						// no enemy, or inactive, so probably safe to ignore
+					if ( ai->IsActive() && ent->spawnArgs.GetBool( "cinematic_remove", "1" ) ) {
+						DPrintf( "removing '%s' for cinematic\n", ent->GetName() );
+						ent->PostEventMS( &EV_Remove, 0 );
 						continue;
 					}
-				} else if ( ent->IsType( idProjectile::Type ) ) {
-					// remove all projectiles
-				} else if ( ent->spawnArgs.GetBool( "cinematic_remove" ) ) {
-					// remove anything marked to be removed during cinematics
-				} else {
-					// ignore everything else
-					continue;
+				}
+
+
+				if ( ent->IsType( idProjectile::Type ) && ent->spawnArgs.GetBool( "cinematic_remove", "1" ) ) {
+					//remove projs even if cinematic 1.
+					//Monsters are now cinematic 1, but their projs must be removed.
+					//Few projectils needs to be cinematic 1 to think during cinematics, but we still want to remove them at the beginning.
+				} else { //ff1.3 end
+
+					if ( ent->cinematic || ent->fl.isDormant ) {
+						// only kill entities that aren't needed for cinematics and aren't dormant
+						continue;
+					}
+
+					if ( ent->IsType( idAI::Type ) ) {
+						ai = static_cast<idAI *>( ent );
+						if ( !ai->GetEnemy() || !ai->IsActive() ) {
+							// no enemy, or inactive, so probably safe to ignore
+							continue;
+						}
+					}
+					/* ff1.3 - moved up
+					else if ( ent->IsType( idProjectile::Type ) ) {
+						// remove all projectiles
+					}
+					*/
+					else if ( ent->spawnArgs.GetBool( "cinematic_remove" ) ) {
+						// remove anything marked to be removed during cinematics
+					} else {
+						// ignore everything else
+						continue;
+					}
 				}
 
 				// remove it
@@ -4238,6 +4821,8 @@ void idGameLocal::SetCamera( idCamera *cam ) {
 			}
 		}
 	}
+
+	nextCinematicAutosaveTime = time + CINEMATIC_AUTOSAVE_INTERVAL; //ff1.3
 }
 
 /*
@@ -4831,9 +5416,11 @@ void idGameLocal::ComputeSlowMsec() {
 	if ( player && player->PowerUpActive( HELLTIME ) ) {
 		powerupOn = true;
 	}
-	else if ( g_enableSlowmo.GetBool() ) {
+	/*
+	else if ( g_enableSlowmo.GetBool() ) { //test only!
 		powerupOn = true;
 	}
+	*/
 
 	// determine proper slowmo state
 	if ( powerupOn && slowmoState == SLOWMO_STATE_OFF ) {
@@ -4848,10 +5435,14 @@ void idGameLocal::ComputeSlowMsec() {
 	else if ( !powerupOn && slowmoState == SLOWMO_STATE_ON ) {
 		slowmoState = SLOWMO_STATE_RAMPDOWN;
 
+		//ff1.3 start - commented out: loop sound is now stopped by exit sound when pw is disabled
+		/*
 		// play the stop sound
 		if ( player ) {
 			player->PlayHelltimeStopSound();
 		}
+		*/
+		//ff1.3 end
 	}
 
 	// do any necessary ramping
@@ -4986,3 +5577,318 @@ idGameLocal::GetMapLoadingGUI
 ===============
 */
 void idGameLocal::GetMapLoadingGUI( char gui[ MAX_STRING_CHARS ] ) { }
+
+//ff1.3 start
+
+/*
+===============
+idGameLocal::LoadMapInfo
+==============
+*/
+void idGameLocal::LoadMapInfo( const char * mapFileName, mapInfo_t &mapInfo ){
+	int *mapIndex;
+	const idDict *mapDict = mapIndexByName.Get( mapFileName, &mapIndex ) ? fileSystem->GetMapDecl( *mapIndex ) : NULL;
+
+	if ( mapDict ) {
+		mapInfo.title = mapDict->GetString("name");
+		if ( !mapInfo.title.Length() ) {
+			mapInfo.title = mapDict->GetString("path");
+		}
+		mapInfo.img = mapDict->GetString("img");
+		mapInfo.noStats = mapDict->GetBool("noStats");
+		mapInfo.noDefaultPda = mapDict->GetBool("noDefaultPda");
+	} else {
+		mapInfo.title.Clear();
+		mapInfo.img.Clear();
+		mapInfo.noStats = false;
+		mapInfo.noDefaultPda = false;
+		//Printf("NULL mapDict in LoadMapInfoFromDict()\n");
+	}
+
+	if ( !mapInfo.title.Length() ) { //for maps without def
+		mapInfo.title = idStr( mapFileName ).StripPath().StripFileExtension().c_str();
+	}
+	if ( !mapInfo.img.Length() ) {
+		mapInfo.img = "guis/assets/splash/" + idStr( mapFileName ).StripPath().SetFileExtension("tga");
+	}
+}
+
+
+void idGameLocal::LoadCampaignInfo( const char * mapFileName, campaignInfo_t &campaignInfo ){
+	int *mapIndex;
+	const idDict *mapDict = mapIndexByName.Get( mapFileName, &mapIndex ) ? fileSystem->GetMapDecl( *mapIndex ) : NULL;
+	const idDict *campaignDict = FindCampaignDictForMapDict( mapDict );
+
+	if ( campaignDict ) {
+		campaignInfo.title = campaignDict->GetString("name");
+		campaignInfo.img = campaignDict->GetString("img");
+		campaignInfo.maps = campaignDict->GetInt("maps", "1");
+	} else {
+		campaignInfo.title.Clear();
+		campaignInfo.img.Clear();
+		campaignInfo.maps = 1;
+	}
+
+	if ( !campaignInfo.title.Length() ) { //for maps without campaign def
+		campaignInfo.title = idStr( mapFileName ).StripPath().StripFileExtension().c_str();
+	}
+}
+
+const idDict * idGameLocal::FindCampaignDictForMapDict( const idDict *mapDict ) {
+	const char *campaignDefName;
+	if ( mapDict && mapDict->GetString( "def_campaign", NULL, &campaignDefName ) && (campaignDefName[0] != '\0') ) {
+		return FindEntityDefDict( campaignDefName, false );
+	} else {
+		return mapDict; //for maps not part of a campaign, use only the map def
+	}
+}
+
+
+/*
+===============
+idGameLocal::PersistCampaignStats
+==============
+*/
+void idGameLocal::PersistCampaignStats( playerStats_t &campaignPlayerStats, mapStats_t &campaignMapStats ) {
+	idStr fileName;
+
+	fileName = campaignInfo.title;
+	fileName.Replace( "\\", "_" );
+	fileName.Replace( "/", "_" );
+	fileName.StripLeadingOnce( "maps_" );
+	fileName.StripAbsoluteFileExtension();
+
+	WriteStatsToFile(campaignPlayerStats, campaignMapStats, fileName.c_str());
+}
+
+/*
+===============
+idGameLocal::GetTimeStat
+==============
+*/
+int idGameLocal::GetTimeStat() {
+	return fast.time;
+}
+
+/*
+===============
+idGameLocal::AutoSave
+==============
+*/
+void idGameLocal::AutoSave() {
+	autoSaving = true;
+	cmdSystem->BufferCommandText( CMD_EXEC_APPEND, "savegame quick\n" );
+}
+
+
+/*
+===============
+idGameLocal::WriteStatsToFile
+==============
+*/
+void idGameLocal::WriteStatsToFile( playerStats_t &playerStats, mapStats_t &mapStats, const char *fileName ) {
+	idFile * file;
+
+	//Printf("SaveStats %s\n", fileName);
+
+	file = fileSystem->OpenFileWrite( va("savegames\\%s.stats", fileName) );
+	if ( file == NULL ) {
+		Warning( "Couldn't open stats file" );
+		return;
+	}
+
+	file->WriteInt(g_skill.GetInteger());
+
+	file->WriteInt(mapStats.time);
+	file->WriteInt(mapStats.skill);
+	file->WriteBool(mapStats.skillChanged);
+	file->WriteInt(mapStats.numSecrets);
+	file->WriteInt(mapStats.numGameCovers);
+
+	file->WriteInt(playerStats.killCount);
+	file->WriteInt(playerStats.soulsCount);
+	file->WriteInt(playerStats.multikill);
+	file->WriteInt(playerStats.skillshot);
+	file->WriteInt(playerStats.doublekill);
+	file->WriteInt(playerStats.massacre);
+	file->WriteInt(playerStats.chainkill);
+	file->WriteInt(playerStats.secretsFound);
+	file->WriteInt(playerStats.gameCoversFound);
+	file->WriteInt(playerStats.damage);
+	file->WriteInt(playerStats.projFired);
+	file->WriteInt(playerStats.projHits);
+
+	fileSystem->CloseFile( file );
+}
+
+/*
+===============
+idGameLocal::ReadStatsFromFile
+==============
+*/
+void idGameLocal::ReadStatsFromFile( playerStats_t &playerStats, mapStats_t &mapStats, const char *fileName ){
+	idFile * file;
+
+	file = fileSystem->OpenFileRead( va("savegames\\%s.stats", fileName) );
+	if ( file == NULL ) {
+		Warning( "Couldn't open stats file %s", fileName );
+		memset( &mapStats, 0, sizeof( mapStats ) );
+		memset( &playerStats, 0, sizeof( playerStats ) );
+		mapStats.skill = g_skill.GetInteger(); //fix: default difficulty level is the current one
+		return;
+	}
+
+	file->ReadInt(mapStats.time);
+	file->ReadInt(mapStats.skill);
+	file->ReadBool(mapStats.skillChanged);
+	file->ReadInt(mapStats.numSecrets);
+	file->ReadInt(mapStats.numGameCovers);
+
+	file->ReadInt(playerStats.killCount);
+	file->ReadInt(playerStats.soulsCount);
+	file->ReadInt(playerStats.multikill);
+	file->ReadInt(playerStats.skillshot);
+	file->ReadInt(playerStats.doublekill);
+	file->ReadInt(playerStats.massacre);
+	file->ReadInt(playerStats.chainkill);
+	file->ReadInt(playerStats.secretsFound);
+	file->ReadInt(playerStats.gameCoversFound);
+	file->ReadInt(playerStats.damage);
+	file->ReadInt(playerStats.projFired);
+	file->ReadInt(playerStats.projHits);
+
+	fileSystem->CloseFile( file );
+}
+
+void idGameLocal::StartActionMusic( idSound *newActionMusicEnt, bool autoStop ) {
+	actionMusicAvailable = (newActionMusicEnt != NULL);
+	actionMusicAutoStop = autoStop;
+	StartMusic( actionMusicEntity, newActionMusicEnt, true );
+}
+
+void idGameLocal::StopActionMusic( void ) {
+	StopMusic( actionMusicEntity );
+	actionMusicAvailable = false;
+	actionMusicAutoStop = false;
+}
+
+void idGameLocal::StartAmbientMusic( idSound *newAmbientMusicEnt ) {
+	StartMusic( ambientMusicEntity, newAmbientMusicEnt, false );
+}
+
+void idGameLocal::StopAmbientMusic( void ) {
+	StopMusic( ambientMusicEntity );
+}
+
+bool idGameLocal::LocalPlayerHasEnemies( void ) {
+	idPlayer *player = GetLocalPlayer();
+	idActor *coopEnemy = lastAICoopEnemy.GetEntity();
+	return (player && player->HasEnemies())
+		|| (coopEnemy && !coopEnemy->fl.isDormant && !coopEnemy->fl.hidden);
+}
+
+/*
+================
+idGameLocal::StartMusic
+================
+*/
+void idGameLocal::StartMusic( idEntityPtr<idSound> &musicEntPtr, idSound *newMusicEnt, bool isActionMusic ) {
+	idSound *oldMusicEnt = musicEntPtr.GetEntity();
+	if ( oldMusicEnt != newMusicEnt ) {
+		if ( oldMusicEnt ) {
+			oldMusicEnt->PostEventMS(&EV_Speaker_Off, 0); //turn off
+			gameLocal.Warning( "A music was already playing." );
+		}
+
+		if ( newMusicEnt ) {
+			float initialVolume;
+			if ( isActionMusic ) {
+				initialVolume = LocalPlayerHasEnemies() ? 0.0f : DISABLED_MUSIC_VOLUME;
+			} else {
+				initialVolume = actionMusicEnabled ? DISABLED_MUSIC_VOLUME : 0.0f;
+			}
+			newMusicEnt->CancelEvents(&EV_Speaker_Off);
+			newMusicEnt->PostEventMS(&EV_Speaker_OnNoParallel, 0 );
+			newMusicEnt->PostEventMS(&EV_FadeSound, 0, SCHANNEL_ANY, initialVolume, 0.0f ); //restore the volume in case it was fading out
+		}
+	}
+	musicEntPtr = newMusicEnt;
+}
+
+/*
+================
+idGameLocal::StopMusic
+================
+*/
+void idGameLocal::StopMusic( idEntityPtr<idSound> &musicEntPtr ) {
+	idSound *musicEnt = musicEntPtr.GetEntity();
+	if ( musicEnt ) {
+		musicEnt->PostEventMS(&EV_FadeSound, 0, SCHANNEL_ANY, -60.0f, 20.0f );
+		musicEnt->PostEventSec(&EV_Speaker_Off, 20 );
+	}
+	/*
+	else {
+		gameLocal.Warning( "There's no music to stop!" );
+	}
+	*/
+	musicEntPtr = NULL;
+}
+
+/*
+================
+idGameLocal::FadeMusic
+================
+*/
+void idGameLocal::FadeMusic( idEntityPtr<idSound> &musicEntPtr, float volume, float time ) {
+	idSound *musicEnt = musicEntPtr.GetEntity();
+	if ( musicEnt ) {
+		musicEnt->PostEventMS(&EV_FadeSound, 0, SCHANNEL_ANY, volume, time );
+	}
+	/*
+	else {
+		gameLocal.Warning( "Invalid music entity!" );
+	}
+	*/
+}
+
+/*
+================
+idGameLocal::UpdateMusicVolume
+================
+*/
+void idGameLocal::UpdateMusicVolume( void ) {
+	if ( ff_music_volume.IsModified() ) {
+		//Printf("ff_music_volume.IsModified()\n");
+		ff_music_volume.ClearModified();
+		if ( ff_music_volume.GetFloat() > MIN_MUSIC_VOLUME ) {
+			gameSoundWorld->FadeSoundClasses( MUSIC_SOUND_CLASS, ff_music_volume.GetFloat(), 0.0f );
+		} else {
+			gameSoundWorld->FadeSoundClasses( MUSIC_SOUND_CLASS, DISABLED_MUSIC_VOLUME, 0.0f );
+		}
+	}
+
+	if ( actionMusicAvailable ) {
+		if ( actionMusicEnabled ) {
+			if ( LocalPlayerHasEnemies() ) {
+				actionMusicEndTime = time + ACTION_MUSIC_END_DELAY;
+			} else if ( actionMusicEndTime < time ) {
+				if ( actionMusicAutoStop ) {
+					StopActionMusic();
+				} else {
+					FadeMusic( actionMusicEntity, DISABLED_MUSIC_VOLUME, 20.0f );
+				}
+				FadeMusic( ambientMusicEntity, 0.0f, 20.0f );
+				actionMusicEnabled = false;
+			}
+		} else if ( LocalPlayerHasEnemies() ) {
+			FadeMusic( actionMusicEntity, 0.0f, 3.0f );
+			FadeMusic( ambientMusicEntity, DISABLED_MUSIC_VOLUME, 2.0f );
+			actionMusicEnabled = true;
+		}
+	} else if ( actionMusicEnabled ) {
+		FadeMusic( ambientMusicEntity, 0.0f, 3.0f );
+		actionMusicEnabled = false;
+	}
+}
+
+//ff1.3 end

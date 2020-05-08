@@ -392,6 +392,20 @@ idAI::idAI() {
 	eyeFocusRate		= 0.0f;
 	headFocusRate		= 0.0f;
 	focusAlignTime		= 0;
+
+	//ff1.3 start
+	activateTargetsOnDeath		= true;
+	focusPosOnlyInRange			= false;
+	helltimeMode				= false;
+	helltimeAllowed				= false;
+	canTouchTriggers			= false;
+	forcedMovements				= false;
+	meleeDamageScale			= 1.0f;
+	projectileDamageScale		= 1.0f;
+	helltimeSkin				= NULL;
+	postHelltimeSkin			= NULL;
+	postHelltimeHeadSkin		= NULL;
+	//ff1.3 end
 }
 
 /*
@@ -557,6 +571,20 @@ void idAI::Save( idSaveGame *savefile ) const {
 
 	harvestEnt.Save( savefile);
 #endif
+
+	//ff1.3 start
+	savefile->WriteBool( activateTargetsOnDeath );
+	savefile->WriteBool( focusPosOnlyInRange );
+	savefile->WriteBool( helltimeMode );
+	savefile->WriteBool( helltimeAllowed );
+	savefile->WriteBool( canTouchTriggers );
+	savefile->WriteBool( forcedMovements );
+	savefile->WriteFloat( meleeDamageScale );
+	savefile->WriteFloat( projectileDamageScale );
+	savefile->WriteSkin( helltimeSkin );
+	savefile->WriteSkin( postHelltimeSkin );
+	savefile->WriteSkin( postHelltimeHeadSkin );
+	//ff1.3 end
 }
 
 /*
@@ -760,6 +788,20 @@ void idAI::Restore( idRestoreGame *savefile ) {
 	//}
 
 #endif
+
+	//ff1.3 start
+	savefile->ReadBool( activateTargetsOnDeath );
+	savefile->ReadBool( focusPosOnlyInRange );
+	savefile->ReadBool( helltimeMode );
+	savefile->ReadBool( helltimeAllowed );
+	savefile->ReadBool( canTouchTriggers );
+	savefile->ReadBool( forcedMovements );
+	savefile->ReadFloat( meleeDamageScale );
+	savefile->ReadFloat( projectileDamageScale );
+	savefile->ReadSkin( helltimeSkin );
+	savefile->ReadSkin( postHelltimeSkin );
+	savefile->ReadSkin( postHelltimeHeadSkin );
+	//ff1.3 end
 }
 
 /*
@@ -967,6 +1009,12 @@ void idAI::Spawn( void ) {
 	useBoneAxis = spawnArgs.GetBool( "useBoneAxis" );
 	SpawnParticles( "smokeParticleSystem" );
 
+	//ff1.3 start
+	if ( team == 0 && spawnArgs.GetBool( "showFriendFx" ) ) {
+		StartEmitter( FRIEND_FX_NAME, FRIEND_FX_JOINT, FRIEND_FX_MODEL, false );
+	}
+	//ff1.3 end
+
 	if ( num_cinematics || spawnArgs.GetBool( "hide" ) || spawnArgs.GetBool( "teleport" ) || spawnArgs.GetBool( "trigger_anim" ) ) {
 		fl.takedamage = false;
 		physicsObj.SetContents( 0 );
@@ -981,6 +1029,21 @@ void idAI::Spawn( void ) {
 		gameLocal.Warning( "entity '%s' doesn't have health set", name.c_str() );
 		health = 1;
 	}
+
+	//ff1.3 start
+
+	if ( !spawnArgs.GetBool( "noInfluence" ) ){
+		const char *slowmoSkinName;
+		if ( spawnArgs.GetString( "skin_spectre", NULL, &slowmoSkinName ) ) {
+			helltimeSkin = declManager->FindSkin( slowmoSkinName );
+		}
+		//black skin fix! - temporary disable slowmo skin
+		helltimeAllowed = !spawnArgs.GetBool( "fix_black_skin" );
+	}
+
+	canTouchTriggers = spawnArgs.GetBool("touch_triggers", "1");
+	forcedMovements = false;
+	//ff1.3 end
 
 	// set up monster chatter
 	SetChatSound();
@@ -1133,13 +1196,30 @@ void idAI::Think( void ) {
 	}
 
 	if ( thinkFlags & TH_THINK ) {
+		//ff1.3 start
+		UpdateAttack();
+		//ff1.3 end
+
 		// clear out the enemy when he dies or is hidden
 		idActor *enemyEnt = enemy.GetEntity();
 		if ( enemyEnt ) {
 			if ( enemyEnt->health <= 0 ) {
 				EnemyDead();
 			}
+
+			//ff1.3 start
+			else if ( team == 0 && enemyEnt->team == 0 ) {
+				gameLocal.Warning("%s ignored teammate %s", GetName(), enemyEnt->GetName());
+				EnemyDead();
+			}
+			//ff1.3 end
 		}
+		//ff1.3 start - handle instant removal of enemies (e.g. in cinematics)
+		else if ( enemy.GetSpawnId() != 0 ) {
+			gameLocal.Warning("%s's enemy has been removed", GetName());
+			EnemyDead();
+		}
+		//ff1.3 end
 
 		current_yaw += deltaViewAngles.yaw;
 		ideal_yaw = idMath::AngleNormalize180( ideal_yaw + deltaViewAngles.yaw );
@@ -1203,6 +1283,12 @@ void idAI::Think( void ) {
 			}
 		}
 
+		//ff1.3 start
+		if ( health > 0 ) {
+			UpdateHelltimeMode( gameLocal.IsSlowmoActive() );
+		}
+		//ff1.3 end
+
 		// clear pain flag so that we recieve any damage between now and the next time we run the script
 		AI_PAIN = false;
 		AI_SPECIAL_DAMAGE = 0;
@@ -1239,6 +1325,89 @@ void idAI::Think( void ) {
 	}
 #endif
 }
+
+//ff1.3 start
+/*
+=====================
+idAI::UpdateHelltimeMode
+=====================
+*/
+void idAI::UpdateHelltimeMode( bool on ) {
+
+	if ( !helltimeAllowed ) { //this fixes the 'black skin' - TODO: fix it properly
+		if ( !AI_ACTIVATED && !AI_PAIN && !enemy.GetEntity() ) {
+			//return;
+		} else {
+			//gameLocal.Warning("AI_ACTIVATED 'black skin' bug\n");
+			helltimeAllowed = true;
+		}
+	}
+
+	if ( helltimeSkin && on != helltimeMode ) {
+
+		//gameLocal.Warning("avoid 'black skin' bug %d\n", animator.NumFrames( ANIMCHANNEL_TORSO ) );
+
+		if ( helltimeMode ) {
+			helltimeMode = false;
+			renderEntity.customSkin = postHelltimeSkin;
+			postHelltimeSkin = NULL;
+
+			if ( head.GetEntity() ) {
+				head.GetEntity()->GetRenderEntity()->customSkin = postHelltimeHeadSkin;
+			}
+			postHelltimeHeadSkin = NULL;
+		} else if ( helltimeAllowed ) {
+			helltimeMode = true;
+			postHelltimeSkin = renderEntity.customSkin;
+			renderEntity.customSkin = helltimeSkin;
+
+			if ( head.GetEntity() ) {
+				postHelltimeHeadSkin = head.GetEntity()->GetRenderEntity()->customSkin;
+				head.GetEntity()->GetRenderEntity()->customSkin = helltimeSkin;
+			}
+
+			//BecomeActive( TH_PHYSICS );TH_ANIMATE
+			//UpdateModel();
+		}
+
+		//BecomeActive( TH_UPDATEVISUALS ); //TH_UPDATEVISUALS
+		//animator.ForceUpdate();
+		//UpdateVisuals();
+		//UpdateModel();
+
+		//gameLocal.Printf("test...\n");
+
+		/*
+		if ( !( thinkFlags & TH_UPDATEVISUALS ) ) {
+			gameLocal.Printf("!( thinkFlags & TH_UPDATEVISUALS )\n");
+		}
+
+		// don't do animations if they're not enabled
+		if ( !( thinkFlags & TH_ANIMATE ) ) {
+			gameLocal.Printf("!( thinkFlags & TH_ANIMATE )\n");
+		}
+
+		if ( !animator.IsAnimating( gameLocal.time ) ) {
+			gameLocal.Printf("!animator.IsAnimating()\n");
+		}
+
+
+		// is the model an MD5?
+		if ( !animator.ModelHandle() ) {
+			// no, so nothing to do
+			gameLocal.Printf("!animator.ModelHandle()\n");
+		}
+
+		// if the model is animating then we have to update it
+		if ( !animator.FrameHasChanged( gameLocal.time ) ) {
+			// still fine the way it was
+			gameLocal.Printf("!animator.FrameHasChanged( gameLocal.time )\n");
+		}
+		*/
+
+	}
+}
+//ff1.3 end
 
 /***********************************************************************
 
@@ -1613,7 +1782,11 @@ bool idAI::FaceEnemy( void ) {
 	}
 
 	TurnToward( lastVisibleEnemyPos );
-	move.goalEntity		= enemyEnt;
+	if(enemyEnt->GetCurrentVehicle()){
+		move.goalEntity	= enemyEnt->GetCurrentVehicle();
+	}else{
+		move.goalEntity	= enemyEnt;
+	}
 	move.moveDest		= physicsObj.GetOrigin();
 	move.moveCommand	= MOVE_FACE_ENEMY;
 	move.moveStatus		= MOVE_STATUS_WAITING;
@@ -1660,7 +1833,7 @@ idAI::DirectMoveToPosition
 =====================
 */
 bool idAI::DirectMoveToPosition( const idVec3 &pos ) {
-	if ( ReachedPos( pos, move.moveCommand ) ) {
+	if ( GetBindMaster() || ReachedPos( pos, move.moveCommand ) ) {
 		StopMove( MOVE_STATUS_DONE );
 		return true;
 	}
@@ -1693,13 +1866,19 @@ idAI::MoveToEnemyHeight
 bool idAI::MoveToEnemyHeight( void ) {
 	idActor	*enemyEnt = enemy.GetEntity();
 
-	if ( !enemyEnt || ( move.moveType != MOVETYPE_FLY ) ) {
+	if ( GetBindMaster() || !enemyEnt || ( move.moveType != MOVETYPE_FLY ) ) {
 		StopMove( MOVE_STATUS_DEST_NOT_FOUND );
 		return false;
 	}
 
-	move.moveDest.z		= lastVisibleEnemyPos.z + enemyEnt->EyeOffset().z + fly_offset;
-	move.goalEntity		= enemyEnt;
+	if(enemyEnt->GetCurrentVehicle()){
+		move.moveDest.z		= lastVisibleEnemyPos.z + enemyEnt->GetCurrentVehicle()->EyeOffset().z + fly_offset;
+		move.goalEntity		= enemyEnt;
+	}else{
+		move.moveDest.z		= lastVisibleEnemyPos.z + enemyEnt->EyeOffset().z + fly_offset;
+		move.goalEntity		= enemyEnt;
+	}
+
 	move.moveCommand	= MOVE_TO_ENEMYHEIGHT;
 	move.moveStatus		= MOVE_STATUS_MOVING;
 	move.startTime		= gameLocal.time;
@@ -1721,7 +1900,7 @@ bool idAI::MoveToEnemy( void ) {
 	aasPath_t	path;
 	idActor		*enemyEnt = enemy.GetEntity();
 
-	if ( !enemyEnt ) {
+	if ( GetBindMaster() || !enemyEnt ) {
 		StopMove( MOVE_STATUS_DEST_NOT_FOUND );
 		return false;
 	}
@@ -1773,7 +1952,11 @@ bool idAI::MoveToEnemy( void ) {
 	}
 
 	move.moveDest		= pos;
-	move.goalEntity		= enemyEnt;
+	if(enemyEnt->GetCurrentVehicle()){
+		move.goalEntity	= enemyEnt->GetCurrentVehicle();
+	}else{
+		move.goalEntity	= enemyEnt;
+	}
 	move.speed			= fly_speed;
 	move.moveStatus		= MOVE_STATUS_MOVING;
 	AI_MOVE_DONE		= false;
@@ -1793,7 +1976,7 @@ bool idAI::MoveToEntity( idEntity *ent ) {
 	aasPath_t	path;
 	idVec3		pos;
 
-	if ( !ent ) {
+	if ( GetBindMaster() || !ent ) {
 		StopMove( MOVE_STATUS_DEST_NOT_FOUND );
 		return false;
 	}
@@ -1866,7 +2049,7 @@ bool idAI::MoveOutOfRange( idEntity *ent, float range ) {
 	idBounds		bounds;
 	idVec3			pos;
 
-	if ( !aas || !ent ) {
+	if ( GetBindMaster() || !aas || !ent ) {
 		StopMove( MOVE_STATUS_DEST_UNREACHABLE );
 		AI_DEST_UNREACHABLE = true;
 		return false;
@@ -1878,7 +2061,8 @@ bool idAI::MoveOutOfRange( idEntity *ent, float range ) {
 	// consider the entity the monster is getting close to as an obstacle
 	obstacle.absBounds = ent->GetPhysics()->GetAbsBounds();
 
-	if ( ent == enemy.GetEntity() ) {
+	idActor	*enemyEnt = enemy.GetEntity();
+	if ( ent == enemyEnt || (enemyEnt && enemyEnt->GetCurrentVehicle() && ent == enemyEnt->GetCurrentVehicle()) ) {
 		pos = lastVisibleEnemyPos;
 	} else {
 		pos = ent->GetPhysics()->GetOrigin();
@@ -1923,7 +2107,7 @@ bool idAI::MoveToAttackPosition( idEntity *ent, int attack_anim ) {
 	idBounds		bounds;
 	idVec3			pos;
 
-	if ( !aas || !ent ) {
+	if ( GetBindMaster() || !aas || !ent ) {
 		StopMove( MOVE_STATUS_DEST_UNREACHABLE );
 		AI_DEST_UNREACHABLE = true;
 		return false;
@@ -1935,7 +2119,8 @@ bool idAI::MoveToAttackPosition( idEntity *ent, int attack_anim ) {
 	// consider the entity the monster is getting close to as an obstacle
 	obstacle.absBounds = ent->GetPhysics()->GetAbsBounds();
 
-	if ( ent == enemy.GetEntity() ) {
+	idActor	*enemyEnt = enemy.GetEntity();
+	if ( ent == enemyEnt || (enemyEnt && enemyEnt->GetCurrentVehicle() && ent == enemyEnt->GetCurrentVehicle()) ) {
 		pos = lastVisibleEnemyPos;
 	} else {
 		pos = ent->GetPhysics()->GetOrigin();
@@ -1972,6 +2157,12 @@ bool idAI::MoveToPosition( const idVec3 &pos ) {
 	idVec3		org;
 	int			areaNum;
 	aasPath_t	path;
+
+	if ( GetBindMaster() ) {
+		StopMove( MOVE_STATUS_DEST_UNREACHABLE );
+		AI_DEST_UNREACHABLE = true;
+		return false;
+	}
 
 	if ( ReachedPos( pos, move.moveCommand ) ) {
 		StopMove( MOVE_STATUS_DONE );
@@ -2022,7 +2213,7 @@ bool idAI::MoveToCover( idEntity *entity, const idVec3 &hideFromPos ) {
 	aasGoal_t		hideGoal;
 	idBounds		bounds;
 
-	if ( !aas || !entity ) {
+	if ( GetBindMaster() || !aas || !entity ) {
 		StopMove( MOVE_STATUS_DEST_UNREACHABLE );
 		AI_DEST_UNREACHABLE = true;
 		return false;
@@ -2098,7 +2289,7 @@ bool idAI::WanderAround( void ) {
 	StopMove( MOVE_STATUS_DONE );
 
 	move.moveDest = physicsObj.GetOrigin() + viewAxis[ 0 ] * physicsObj.GetGravityAxis() * 256.0f;
-	if ( !NewWanderDir( move.moveDest ) ) {
+	if ( GetBindMaster() || !NewWanderDir( move.moveDest ) ) {
 		StopMove( MOVE_STATUS_DEST_UNREACHABLE );
 		AI_DEST_UNREACHABLE = true;
 		return false;
@@ -2393,14 +2584,21 @@ bool idAI::EntityCanSeePos( idActor *actor, const idVec3 &actorOrigin, const idV
 
 	gameLocal.pvs.FreeCurrentPVS( handle );
 
-	eye = actorOrigin + actor->EyeOffset();
+	idEntity *testEnt;
+	if( actor->GetCurrentVehicle() ){
+		testEnt = actor->GetCurrentVehicle();
+		eye = actorOrigin + actor->GetCurrentVehicle()->EyeOffset();
+	}else{
+		testEnt = actor;
+		eye = actorOrigin + actor->EyeOffset();
+	}
 
 	point = pos;
 	point[2] += 1.0f;
 
 	physicsObj.DisableClip();
 
-	gameLocal.clip.TracePoint( results, eye, point, MASK_SOLID, actor );
+	gameLocal.clip.TracePoint( results, eye, point, MASK_SOLID, testEnt );
 	if ( results.fraction >= 1.0f || ( gameLocal.GetTraceEntity( results ) == this ) ) {
 		physicsObj.EnableClip();
 		return true;
@@ -2409,7 +2607,7 @@ bool idAI::EntityCanSeePos( idActor *actor, const idVec3 &actorOrigin, const idV
 	const idBounds &bounds = physicsObj.GetBounds();
 	point[2] += bounds[1][2] - bounds[0][2];
 
-	gameLocal.clip.TracePoint( results, eye, point, MASK_SOLID, actor );
+	gameLocal.clip.TracePoint( results, eye, point, MASK_SOLID, testEnt );
 	physicsObj.EnableClip();
 	if ( results.fraction >= 1.0f || ( gameLocal.GetTraceEntity( results ) == this ) ) {
 		return true;
@@ -2638,7 +2836,12 @@ void idAI::CheckObstacleAvoidance( const idVec3 &goalPos, idVec3 &newPos ) {
 
 	obstacle = NULL;
 	AI_OBSTACLE_IN_PATH = false;
-	foundPath = FindPathAroundObstacles( &physicsObj, aas, enemy.GetEntity(), origin, goalPos, path );
+	idActor	*enemyEnt = enemy.GetEntity();
+	if( enemyEnt && enemyEnt->GetCurrentVehicle() ){
+		foundPath = FindPathAroundObstacles( &physicsObj, aas, enemyEnt->GetCurrentVehicle(), origin, goalPos, path );
+	}else{
+		foundPath = FindPathAroundObstacles( &physicsObj, aas, enemyEnt, origin, goalPos, path );
+	}
 	if ( ai_showObstacleAvoidance.GetBool() ) {
 		gameRenderWorld->DebugLine( colorBlue, goalPos + idVec3( 1.0f, 1.0f, 0.0f ), goalPos + idVec3( 1.0f, 1.0f, 64.0f ), gameLocal.msec );
 		gameRenderWorld->DebugLine( foundPath ? colorYellow : colorRed, path.seekPos, path.seekPos + idVec3( 0.0f, 0.0f, 64.0f ), gameLocal.msec );
@@ -2800,7 +3003,14 @@ void idAI::AnimMove( void ) {
 	}
 
 	if ( !af_push_moveables && attack.Length() && TestMelee() ) {
-		DirectDamage( attack, enemy.GetEntity() );
+		idActor *enemyEnt = enemy.GetEntity();
+		if( enemyEnt && enemyEnt->GetCurrentVehicle() ){
+			DirectDamage( attack, enemyEnt->GetCurrentVehicle() );
+			DamageEffect( attack, enemyEnt->GetCurrentVehicle(), GetEyePosition(), melee_range ); //ff1.3
+		}else{
+			DirectDamage( attack, enemyEnt );
+			DamageEffect( attack, enemyEnt, GetEyePosition(), melee_range ); //ff1.3
+		}
 	} else {
 		idEntity *blockEnt = physicsObj.GetSlideMoveEntity();
 		if ( blockEnt && blockEnt->IsType( idMoveable::Type ) && blockEnt->GetPhysics()->IsPushable() ) {
@@ -2813,9 +3023,16 @@ void idAI::AnimMove( void ) {
 	AI_ONGROUND = physicsObj.OnGround();
 
 	idVec3 org = physicsObj.GetOrigin();
+	//ff1.3 start
+	/* was
 	if ( oldorigin != org ) {
 		TouchTriggers();
 	}
+	*/
+	if ( canTouchTriggers && ( forcedMovements || oldorigin != org ) ) {
+		TouchTriggers();
+	}
+	//ff1.3 end
 
 	if ( ai_debugMove.GetBool() ) {
 		gameRenderWorld->DebugBounds( colorMagenta, physicsObj.GetBounds(), org, gameLocal.msec );
@@ -2926,7 +3143,14 @@ void idAI::SlideMove( void ) {
 	}
 
 	if ( !af_push_moveables && attack.Length() && TestMelee() ) {
-		DirectDamage( attack, enemy.GetEntity() );
+		idActor *enemyEnt = enemy.GetEntity();
+		if( enemyEnt && enemyEnt->GetCurrentVehicle() ){
+			DirectDamage( attack, enemyEnt->GetCurrentVehicle() );
+			DamageEffect( attack, enemyEnt->GetCurrentVehicle(), GetEyePosition(), melee_range ); //ff1.3
+		}else{
+			DirectDamage( attack, enemyEnt );
+			DamageEffect( attack, enemyEnt, GetEyePosition(), melee_range ); //ff1.3
+		}
 	} else {
 		idEntity *blockEnt = physicsObj.GetSlideMoveEntity();
 		if ( blockEnt && blockEnt->IsType( idMoveable::Type ) && blockEnt->GetPhysics()->IsPushable() ) {
@@ -2939,9 +3163,16 @@ void idAI::SlideMove( void ) {
 	AI_ONGROUND = physicsObj.OnGround();
 
 	idVec3 org = physicsObj.GetOrigin();
+	//ff1.3 start
+	/* was
 	if ( oldorigin != org ) {
 		TouchTriggers();
 	}
+	*/
+	if ( canTouchTriggers && ( forcedMovements || oldorigin != org ) ) {
+		TouchTriggers();
+	}
+	//ff1.3 end
 
 	if ( ai_debugMove.GetBool() ) {
 		gameRenderWorld->DebugBounds( colorMagenta, physicsObj.GetBounds(), org, gameLocal.msec );
@@ -3025,7 +3256,7 @@ void idAI::AdjustFlyHeight( idVec3 &vel, const idVec3 &goalPos ) {
 	idVec3			end;
 	idVec3			dest;
 	trace_t			trace;
-	idActor			*enemyEnt;
+	//idActor			*enemyEnt;
 	bool			goLower;
 
 	// make sure we're not flying too high to get through doors
@@ -3049,10 +3280,18 @@ void idAI::AdjustFlyHeight( idVec3 &vel, const idVec3 &goalPos ) {
 		// make sure we don't fly too low
 		end = origin;
 
-		enemyEnt = enemy.GetEntity();
-		if ( enemyEnt ) {
+		if ( enemy.GetEntity() ) {
 			end.z = lastVisibleEnemyPos.z + lastVisibleEnemyEyeOffset.z + fly_offset;
-		} else {
+		}
+		else if ( ( team == 0 ) && ( move.moveCommand == MOVE_TO_ENTITY ) && ( move.goalEntity.GetEntity() ) ) { //ff1.3
+			end.z = move.goalEntity.GetEntity()->GetPhysics()->GetOrigin().z + FRIEND_FLY_OFFSET;
+		}
+		/*
+		else if(team == 0){
+			//end.z = gameLocal.GetLocalPlayer()->GetEyePosition().z;
+		}
+		*/
+		else {
 			// just use the default eye height for the player
 			end.z = goalPos.z + DEFAULT_FLY_OFFSET + fly_offset;
 		}
@@ -3152,10 +3391,14 @@ void idAI::FlyMove( void ) {
 		// add in bobbing
 		AddFlyBob( vel );
 
-		if ( enemy.GetEntity() && ( move.moveCommand != MOVE_TO_POSITION ) ) {
-			AdjustFlyHeight( vel, goalPos );
+		if ( !forcedMovements ) { //ff1.3
+			if ( enemy.GetEntity() && ( move.moveCommand != MOVE_TO_POSITION ) ) {
+				AdjustFlyHeight( vel, goalPos );
+			}
+			else if ( ( team == 0 ) && ( move.moveCommand == MOVE_TO_ENTITY ) ) { //ff1.3 following player
+				AdjustFlyHeight( vel, goalPos );
+			}
 		}
-
 		AdjustFlySpeed( vel );
 
 		physicsObj.SetLinearVelocity( vel );
@@ -3174,7 +3417,14 @@ void idAI::FlyMove( void ) {
 
 	monsterMoveResult_t	moveResult = physicsObj.GetMoveResult();
 	if ( !af_push_moveables && attack.Length() && TestMelee() ) {
-		DirectDamage( attack, enemy.GetEntity() );
+		idActor *enemyEnt = enemy.GetEntity();
+		if( enemyEnt && enemyEnt->GetCurrentVehicle() ){
+			DirectDamage( attack, enemyEnt->GetCurrentVehicle() );
+			DamageEffect( attack, enemyEnt->GetCurrentVehicle(), GetEyePosition(), melee_range ); //ff1.3
+		}else{
+			DirectDamage( attack, enemyEnt );
+			DamageEffect( attack, enemyEnt, GetEyePosition(), melee_range ); //ff1.3
+		}
 	} else {
 		idEntity *blockEnt = physicsObj.GetSlideMoveEntity();
 		if ( blockEnt && blockEnt->IsType( idMoveable::Type ) && blockEnt->GetPhysics()->IsPushable() ) {
@@ -3186,9 +3436,16 @@ void idAI::FlyMove( void ) {
 	}
 
 	idVec3 org = physicsObj.GetOrigin();
+	//ff1.3 start
+	/* was
 	if ( oldorigin != org ) {
 		TouchTriggers();
 	}
+	*/
+	if ( canTouchTriggers && ( forcedMovements || oldorigin != org ) ) {
+		TouchTriggers();
+	}
+	//ff1.3 end
 
 	if ( ai_debugMove.GetBool() ) {
 		gameRenderWorld->DebugLine( colorCyan, oldorigin, physicsObj.GetOrigin(), 4000 );
@@ -3228,7 +3485,13 @@ void idAI::StaticMove( void ) {
 	AI_ONGROUND = false;
 
 	if ( !af_push_moveables && attack.Length() && TestMelee() ) {
-		DirectDamage( attack, enemyEnt );
+		if( enemyEnt && enemyEnt->GetCurrentVehicle() ){
+			DirectDamage( attack, enemyEnt->GetCurrentVehicle() );
+			DamageEffect( attack, enemyEnt->GetCurrentVehicle(), GetEyePosition(), melee_range ); //ff1.3
+		}else{
+			DirectDamage( attack, enemyEnt );
+			DamageEffect( attack, enemyEnt, GetEyePosition(), melee_range ); //ff1.3
+		}
 	}
 
 	if ( ai_debugMove.GetBool() ) {
@@ -3250,18 +3513,24 @@ void idAI::StaticMove( void ) {
 idAI::ReactionTo
 =====================
 */
-int idAI::ReactionTo( const idEntity *ent ) {
+int idAI::ReactionTo( const idActor *actor ) {
+	if( team == 0 && actor->team == 0 ){
+		// team 0 don't attack each other
+		return ATTACK_IGNORE;
+	}
 
-	if ( ent->fl.hidden ) {
+	if ( actor->fl.hidden && ( !actor->GetCurrentVehicle() || actor->GetCurrentVehicle()->fl.hidden ) ) {
 		// ignore hidden entities
 		return ATTACK_IGNORE;
 	}
 
+	/*
 	if ( !ent->IsType( idActor::Type ) ) {
 		return ATTACK_IGNORE;
 	}
+	*/
 
-	const idActor *actor = static_cast<const idActor *>( ent );
+	//const idActor *actor = static_cast<const idActor *>( ent );
 	if ( actor->IsType( idPlayer::Type ) && static_cast<const idPlayer *>(actor)->noclip ) {
 		// ignore players in noclip mode
 		return ATTACK_IGNORE;
@@ -3308,10 +3577,11 @@ bool idAI::Pain( idEntity *inflictor, idEntity *attacker, int damage, const idVe
 			AI_SPECIAL_DAMAGE = 0;
 		}
 
-		if ( enemy.GetEntity() != attacker && attacker->IsType( idActor::Type ) ) {
+		if ( enemy.GetEntity() != attacker && attacker->IsType( idActor::Type ) ) { //TODO: add support for vehicles?
+			//gameLocal.Printf("idAI::Pain from %s\n", attacker->GetName() ); //test
 			actor = ( idActor * )attacker;
 			if ( ReactionTo( actor ) & ATTACK_ON_DAMAGE ) {
-				gameLocal.AlertAI( actor );
+				gameLocal.AlertAI( actor, actor->GetPhysics()->GetOrigin() );
 				SetEnemy( actor );
 			}
 		}
@@ -3396,6 +3666,13 @@ void idAI::Killed( idEntity *inflictor, idEntity *attacker, int damage, const id
 	idAngles ang;
 	const char *modelDeath;
 
+	//ff1.3 start
+	if ( this == gameLocal.lastAICoopEnemy.GetEntity() ) {
+		gameLocal.lastAICoopEnemy = NULL;
+	}
+	idActor::Killed(inflictor, attacker, damage, dir, location); //stop dmgfx
+	//ff1.3 end
+
 	// make sure the monster is activated
 	EndAttack();
 
@@ -3404,11 +3681,20 @@ void idAI::Killed( idEntity *inflictor, idEntity *attacker, int damage, const id
 			GetDamageGroup( location ) );
 	}
 
+	//ff1.3 start
+	/*
 	if ( inflictor ) {
 		AI_SPECIAL_DAMAGE = inflictor->spawnArgs.GetInt( "special_damage" );
 	} else {
 		AI_SPECIAL_DAMAGE = 0;
 	}
+	*/
+
+	int special_damage = ( inflictor ) ? inflictor->spawnArgs.GetInt( "special_damage" ) : 0;
+	AI_SPECIAL_DAMAGE = special_damage;
+
+	UpdateFriendFx(); //stop fx
+	//ff1.3 end
 
 	if ( AI_DEAD ) {
 		AI_PAIN = true;
@@ -3424,7 +3710,12 @@ void idAI::Killed( idEntity *inflictor, idEntity *attacker, int damage, const id
 	}
 
 	disableGravity = false;
-	move.moveType = MOVETYPE_DEAD;
+	if ( spawnArgs.GetBool( "staticDeath" ) ) { //ff1.3 - turrets fix
+		move.moveType = MOVETYPE_STATIC;
+	}else{
+		move.moveType = MOVETYPE_DEAD;
+	}
+
 	af_push_moveables = false;
 
 	physicsObj.UseFlyMove( false );
@@ -3434,11 +3725,18 @@ void idAI::Killed( idEntity *inflictor, idEntity *attacker, int damage, const id
 	StopSound( SND_CHANNEL_AMBIENT, false );
 
 	if ( attacker && attacker->IsType( idActor::Type ) ) {
-		gameLocal.AlertAI( ( idActor * )attacker );
+		gameLocal.AlertAI( ( idActor * )attacker, attacker->GetPhysics()->GetOrigin() );
 	}
 
+	//ff1.3 start
+	UpdateHelltimeMode(false);
+
 	// activate targets
-	ActivateTargets( attacker );
+	//was: ActivateTargets( attacker );
+	if ( activateTargetsOnDeath ) { //false for dynamic friends and demon possession
+		ActivateTargets( attacker );
+	}
+	//ff1.3 end
 
 	RemoveAttachments();
 	RemoveProjectile();
@@ -3455,6 +3753,15 @@ void idAI::Killed( idEntity *inflictor, idEntity *attacker, int damage, const id
 
 	if ( StartRagdoll() ) {
 		StartSound( "snd_death", SND_CHANNEL_VOICE, 0, false, NULL );
+
+		//ff1.3 start - disintegrate ragdolls for BFG
+		if ( special_damage == 2 ) {
+			//gameLocal.Printf("SetThrown\n");
+			SetThrown( true ); //disable collisions with other corpses
+			spawnArgs.SetInt( "burnaway", 0 ); //disable burnaway //TODO: do this properly?
+			Event_Disintegrate();
+		}
+		//ff1.3 end
 	}
 
 	if ( spawnArgs.GetString( "model_death", "", &modelDeath ) ) {
@@ -3469,6 +3776,10 @@ void idAI::Killed( idEntity *inflictor, idEntity *attacker, int damage, const id
 		// No grabbing if "model_death"
 		noGrab = true;
 #endif
+		//ff1.3 start- remove dmgfxs on model_death (usually a prt)
+		RemoveDamageFxs();
+		allowDmgfxs = false;
+		//ff1.3 end
 	}
 
 	restartParticles = false;
@@ -3600,6 +3911,8 @@ Notifies the script that a monster has been activated by a trigger or flashlight
 */
 void idAI::Activate( idEntity *activator ) {
 	idPlayer *player;
+	idActor *actor;
+	//gameLocal.Printf("idAI::Activate %s", activator != NULL ? activator->GetName() : "null" );
 
 	if ( AI_DEAD ) {
 		// ignore it when they're dead
@@ -3613,14 +3926,41 @@ void idAI::Activate( idEntity *activator ) {
 		PlayCinematic();
 	} else {
 		AI_ACTIVATED = true;
+
+		/*
 		if ( !activator || !activator->IsType( idPlayer::Type ) ) {
 			player = gameLocal.GetLocalPlayer();
 		} else {
 			player = static_cast<idPlayer *>( activator );
 		}
+		*/
 
-		if ( ReactionTo( player ) & ATTACK_ON_ACTIVATE ) {
-			SetEnemy( player );
+		//find player
+		if( activator && activator->IsType( idPlayer::Type ) ) {
+			player = static_cast<idPlayer *>( activator );
+		} else if( activator && activator->IsType( idAFEntity_Vehicle::Type ) ) {
+			player = static_cast<idAFEntity_Vehicle *>( activator )->GetDriver();
+			if ( !player ){ //vehicle without driver
+				player = gameLocal.GetLocalPlayer();
+			}
+		} else if( activator && activator->IsType( idAI_Rideable::Type ) ) {
+			player = static_cast<idAI_Rideable *>( activator )->GetDriver();
+			if ( !player ){ //ai without driver
+				player = gameLocal.GetLocalPlayer();
+			}
+		} else {
+			player = gameLocal.GetLocalPlayer();
+		}
+
+		//find enemy
+		if( player->GetCurrentRiddenAI() ){
+			actor = player->GetCurrentRiddenAI();
+		}else{
+			actor = player;
+		}
+
+		if ( ReactionTo( actor ) & ATTACK_ON_ACTIVATE ) {
+			SetEnemy( actor );
 		}
 
 		// update the script in cinematics so that entities don't start anims or show themselves a frame late.
@@ -3680,7 +4020,12 @@ void idAI::TalkTo( idActor *actor ) {
 
 	talkTarget = actor;
 	if ( actor ) {
+		//ff1.3 start: activate ai by talking
+		if ( !AI_ACTIVATED ) {
+			AI_ACTIVATED = true;
+		}
 		AI_TALK = true;
+		//ff1.3 end
 	} else {
 		AI_TALK = false;
 	}
@@ -3786,15 +4131,24 @@ void idAI::SetEnemyPosition( void ) {
 	}
 
 	lastVisibleReachableEnemyPos = lastReachableEnemyPos;
-	lastVisibleEnemyEyeOffset = enemyEnt->EyeOffset();
-	lastVisibleEnemyPos = enemyEnt->GetPhysics()->GetOrigin();
+	if( enemyEnt->GetCurrentVehicle() ){
+		lastVisibleEnemyEyeOffset = enemyEnt->GetCurrentVehicle()->EyeOffset();
+		lastVisibleEnemyPos = enemyEnt->GetCurrentVehicle()->GetPhysics()->GetOrigin();
+	}else{
+		lastVisibleEnemyEyeOffset = enemyEnt->EyeOffset();
+		lastVisibleEnemyPos = enemyEnt->GetPhysics()->GetOrigin();
+	}
 	if ( move.moveType == MOVETYPE_FLY ) {
 		pos = lastVisibleEnemyPos;
 		onGround = true;
 	} else {
-		onGround = enemyEnt->GetFloorPos( 64.0f, pos );
-		if ( enemyEnt->OnLadder() ) {
-			onGround = false;
+		if( enemyEnt->GetCurrentVehicle() ){
+			onGround = enemyEnt->GetCurrentVehicle()->GetFloorPos( 64.0f, pos );
+		}else{
+			onGround = enemyEnt->GetFloorPos( 64.0f, pos );
+			if ( enemyEnt->OnLadder() ) {
+				onGround = false;
+			}
 		}
 	}
 
@@ -3853,7 +4207,11 @@ void idAI::SetEnemyPosition( void ) {
 		if ( move.moveType == MOVETYPE_FLY ) {
 			predictedPath_t path;
 			idVec3 end = move.moveDest;
-			end.z += enemyEnt->EyeOffset().z + fly_offset;
+			if( enemyEnt->GetCurrentVehicle() ){
+				end.z += enemyEnt->GetCurrentVehicle()->EyeOffset().z + fly_offset;
+			}else{
+				end.z += enemyEnt->EyeOffset().z + fly_offset;
+			}
 			idAI::PredictPath( this, aas, move.moveDest, end - move.moveDest, 1000, 1000, SE_BLOCKED, path );
 			move.moveDest = path.endPos;
 			move.toAreaNum = PointReachableAreaNum( move.moveDest, 1.0f );
@@ -3880,13 +4238,24 @@ void idAI::UpdateEnemyPosition( void ) {
 
 	const idVec3 &org = physicsObj.GetOrigin();
 
+	idEntity *testEntity;
+	if( enemyEnt->GetCurrentVehicle() ){
+		testEntity = enemyEnt->GetCurrentVehicle();
+	}else{
+		testEntity = enemyEnt;
+	}
+
 	if ( move.moveType == MOVETYPE_FLY ) {
-		enemyPos = enemyEnt->GetPhysics()->GetOrigin();
+		enemyPos = testEntity->GetPhysics()->GetOrigin();
 		onGround = true;
 	} else {
-		onGround = enemyEnt->GetFloorPos( 64.0f, enemyPos );
-		if ( enemyEnt->OnLadder() ) {
-			onGround = false;
+		if( enemyEnt->GetCurrentVehicle() ){
+			onGround = enemyEnt->GetCurrentVehicle()->GetFloorPos( 64.0f, enemyPos );
+		}else{
+			onGround = enemyEnt->GetFloorPos( 64.0f, enemyPos );
+			if ( enemyEnt->OnLadder() ) {
+				onGround = false;
+			}
 		}
 	}
 
@@ -3910,9 +4279,9 @@ void idAI::UpdateEnemyPosition( void ) {
 	AI_ENEMY_IN_FOV		= false;
 	AI_ENEMY_VISIBLE	= false;
 
-	if ( CanSee( enemyEnt, false ) ) {
+	if ( CanSee( testEntity, false ) ) {
 		AI_ENEMY_VISIBLE = true;
-		if ( CheckFOV( enemyEnt->GetPhysics()->GetOrigin() ) ) {
+		if ( CheckFOV( testEntity->GetPhysics()->GetOrigin(), fovDot ) ) { //ff1.3 - fovDot added
 			AI_ENEMY_IN_FOV = true;
 		}
 
@@ -3920,7 +4289,7 @@ void idAI::UpdateEnemyPosition( void ) {
 	} else {
 		// check if we heard any sounds in the last frame
 		if ( enemyEnt == gameLocal.GetAlertEntity() ) {
-			float dist = ( enemyEnt->GetPhysics()->GetOrigin() - org ).LengthSqr();
+			float dist = ( testEntity->GetPhysics()->GetOrigin() - org ).LengthSqr();
 			if ( dist < Square( AI_HEARING_RANGE ) ) {
 				SetEnemyPosition();
 			}
@@ -3956,6 +4325,7 @@ void idAI::SetEnemy( idActor *newEnemy ) {
 			EnemyDead();
 			return;
 		}
+
 		// let the monster know where the enemy is
 		newEnemy->GetAASLocation( aas, lastReachableEnemyPos, enemyAreaNum );
 		SetEnemyPosition();
@@ -3968,6 +4338,12 @@ void idAI::SetEnemy( idActor *newEnemy ) {
 			aas->PushPointIntoAreaNum( enemyAreaNum, lastReachableEnemyPos );
 			lastVisibleReachableEnemyPos = lastReachableEnemyPos;
 		}
+
+		//ff1.3 start
+		if ( team == 0 ) {
+			gameLocal.lastAICoopEnemy = newEnemy;
+		}
+		//ff1.3 end
 	}
 }
 
@@ -4088,7 +4464,7 @@ void idAI::CreateProjectileClipModel( void ) const {
 idAI::GetAimDir
 =====================
 */
-bool idAI::GetAimDir( const idVec3 &firePos, idEntity *aimAtEnt, const idEntity *ignore, idVec3 &aimDir ) const {
+bool idAI::GetAimDir( const idVec3 &firePos, idEntity *aimAtEnt, const idEntity *ignore, idVec3 &aimDir, bool useLastVisiblePos ) const {
 	idVec3	targetPos1;
 	idVec3	targetPos2;
 	idVec3	delta;
@@ -4104,28 +4480,41 @@ bool idAI::GetAimDir( const idVec3 &firePos, idEntity *aimAtEnt, const idEntity 
 	if ( projectileClipModel == NULL ) {
 		CreateProjectileClipModel();
 	}
-
-	if ( aimAtEnt == enemy.GetEntity() ) {
-		static_cast<idActor *>( aimAtEnt )->GetAIAimTargets( lastVisibleEnemyPos, targetPos1, targetPos2 );
+	idActor * enemyEnt = enemy.GetEntity();
+	if ( useLastVisiblePos && aimAtEnt == enemyEnt ) {
+		if ( enemyEnt->GetCurrentVehicle() ){
+			enemyEnt->GetCurrentVehicle()->GetAIAimTargets( lastVisibleEnemyPos, targetPos1, targetPos2 );
+		} else {
+			enemyEnt->GetAIAimTargets( lastVisibleEnemyPos, targetPos1, targetPos2 );
+		}
 	} else if ( aimAtEnt->IsType( idActor::Type ) ) {
-		static_cast<idActor *>( aimAtEnt )->GetAIAimTargets( aimAtEnt->GetPhysics()->GetOrigin(), targetPos1, targetPos2 );
+		idActor * actor = static_cast<idActor *>( aimAtEnt );
+		if ( actor->GetCurrentVehicle() ) {
+			actor->GetCurrentVehicle()->GetAIAimTargets( actor->GetCurrentVehicle()->GetPhysics()->GetOrigin(), targetPos1, targetPos2 );
+		} else {
+			actor->GetAIAimTargets( actor->GetPhysics()->GetOrigin(), targetPos1, targetPos2 );
+		}
+	} else if ( aimAtEnt->IsType( idAFEntity_Vehicle::Type ) ) {
+		static_cast<idAFEntity_Vehicle *>( aimAtEnt )->GetAIAimTargets( aimAtEnt->GetPhysics()->GetOrigin(), targetPos1, targetPos2 );
 	} else {
 		targetPos1 = aimAtEnt->GetPhysics()->GetAbsBounds().GetCenter();
 		targetPos2 = targetPos1;
 	}
 
+/* ff1.3 - not needed anymore
 #ifdef _D3XP
 	if ( this->team == 0 && !idStr::Cmp( aimAtEnt->GetEntityDefName(), "monster_demon_vulgar" ) ) {
 		targetPos1.z -= 28.f;
 		targetPos2.z -= 12.f;
 	}
 #endif
+*/
 
 	// try aiming for chest
 	delta = firePos - targetPos1;
 	max_height = delta.LengthFast() * projectile_height_to_distance_ratio;
 	result = PredictTrajectory( firePos, targetPos1, projectileSpeed, projectileGravity, projectileClipModel, MASK_SHOT_RENDERMODEL, max_height, ignore, aimAtEnt, ai_debugTrajectory.GetBool() ? 1000 : 0, aimDir );
-	if ( result || !aimAtEnt->IsType( idActor::Type ) ) {
+	if ( result || !aimAtEnt->IsType( idActor::Type ) ) { //TODO: add vehicle check for targetPos2?
 		return result;
 	}
 
@@ -4220,7 +4609,7 @@ idProjectile *idAI::LaunchProjectile( const char *jointname, idEntity *target, b
 	int					i;
 	idMat3				axis;
 #ifdef _D3XP
-	idMat3				proj_axis;
+	//idMat3				proj_axis;
 	bool				forceMuzzle;
 #endif
 	idVec3				tmp;
@@ -4261,7 +4650,7 @@ idProjectile *idAI::LaunchProjectile( const char *jointname, idEntity *target, b
 	axis[0] = -tmp;
 
 #ifdef _D3XP
-	proj_axis = axis;
+	//proj_axis = axis;
 #endif
 
 	if ( !forceMuzzle ) {	// _D3XP
@@ -4323,7 +4712,8 @@ idProjectile *idAI::LaunchProjectile( const char *jointname, idEntity *target, b
 			CreateProjectile( muzzle, dir );
 		}
 		lastProjectile = projectile.GetEntity();
-		lastProjectile->Launch( muzzle, dir, vec3_origin );
+		//ff1.3 - was: lastProjectile->Launch( muzzle, dir, vec3_origin );
+		lastProjectile->Launch( muzzle, dir, vec3_origin, 0.0f, 1.0f, projectileDamageScale );
 		projectile = NULL;
 	}
 
@@ -4348,11 +4738,48 @@ void idAI::DamageFeedback( idEntity *victim, idEntity *inflictor, int &damage ) 
 	if ( ( victim == this ) && inflictor->IsType( idProjectile::Type ) ) {
 		// monsters only get half damage from their own projectiles
 		damage = ( damage + 1 ) / 2;  // round up so we don't do 0 damage
-
-	} else if ( victim == enemy.GetEntity() ) {
-		AI_HIT_ENEMY = true;
+	} else{
+		idActor *enemyEnt = enemy.GetEntity();
+		if ( victim == enemyEnt || (enemyEnt && victim == enemyEnt->GetCurrentVehicle()) ) {
+			AI_HIT_ENEMY = true;
+		}
 	}
 }
+
+//ff1.3 start
+/*
+=====================
+idAI::DamageEffect
+=====================
+*/
+void idAI::DamageEffect( const char *meleeDefName, idEntity *ent, const idVec3 &start, float range ) {
+	trace_t			trace;
+	//idVec3			start;
+	idVec3			end;
+	idVec3			damageFxDir;
+
+	//damage effect - could work for any entity but just add blood on actors for now
+	if ( ent->IsType( idAI::Type ) ) {
+		//start = GetEyePosition();
+		if ( !static_cast<idActor *>(ent)->GetInsideBodyAimTarget(end) ) {
+			end = ent->GetPhysics()->GetAbsBounds().GetCenter();
+		}
+		damageFxDir = end - start;
+		damageFxDir.Normalize();
+		end = start + damageFxDir * (range + 50.0f);
+
+		if ( g_debugDamage.GetBool() ) {
+			gameRenderWorld->DebugLine( colorBlue, start, end, 5000 );
+		}
+
+		gameLocal.clip.TracePoint( trace, start, end, MASK_SHOT_RENDERMODEL, this );
+		if ( ( trace.fraction < 1.0f ) && ( gameLocal.GetTraceEntity( trace ) == ent ) ) {
+			//gameLocal.Printf("AddDamageEffect\n");
+			ent->AddDamageEffect( trace, damageFxDir, meleeDefName, this );
+		}
+	}
+}
+//ff1.3 end
 
 /*
 =====================
@@ -4395,7 +4822,8 @@ void idAI::DirectDamage( const char *meleeDefName, idEntity *ent ) {
 	idVec3	globalKickDir;
 	globalKickDir = ( viewAxis * physicsObj.GetGravityAxis() ) * kickDir;
 
-	ent->Damage( this, this, globalKickDir, meleeDefName, 1.0f, INVALID_JOINT );
+	ent->Damage( this, this, globalKickDir, meleeDefName, meleeDamageScale /*was: 1.0f*/, INVALID_JOINT );
+	//DamageEffect( meleeDefName, ent, GetEyePosition(), melee_range ); //ff1.3
 
 	// end the attack if we're a multiframe attack
 	EndAttack();
@@ -4414,6 +4842,8 @@ bool idAI::TestMelee( void ) const {
 		return false;
 	}
 
+	idAFEntity_Vehicle *enemyVehicle = enemyEnt->GetCurrentVehicle();
+
 	//FIXME: make work with gravity vector
 	idVec3 org = physicsObj.GetOrigin();
 	const idBounds &myBounds = physicsObj.GetBounds();
@@ -4428,8 +4858,15 @@ bool idAI::TestMelee( void ) const {
 	bounds[1][2] = myBounds[1][2] + 4.0f;
 	bounds.TranslateSelf( org );
 
-	idVec3 enemyOrg = enemyEnt->GetPhysics()->GetOrigin();
-	idBounds enemyBounds = enemyEnt->GetPhysics()->GetBounds();
+	idVec3 enemyOrg;
+	idBounds enemyBounds;
+	if( enemyVehicle ){
+		enemyOrg = enemyVehicle->GetPhysics()->GetOrigin();
+		enemyBounds = enemyVehicle->GetPhysics()->GetBounds();
+	}else{
+		enemyOrg = enemyEnt->GetPhysics()->GetOrigin();
+		enemyBounds = enemyEnt->GetPhysics()->GetBounds();
+	}
 	enemyBounds.TranslateSelf( enemyOrg );
 
 	if ( ai_debugMove.GetBool() ) {
@@ -4441,10 +4878,17 @@ bool idAI::TestMelee( void ) const {
 	}
 
 	idVec3 start = GetEyePosition();
-	idVec3 end = enemyEnt->GetEyePosition();
+	idVec3 end = (enemyVehicle) ? enemyVehicle->GetEyePosition() : enemyEnt->GetEyePosition();
+
+	idEntity *testEnt;
+	if( enemyVehicle ){
+		testEnt = enemyVehicle;
+	}else{
+		testEnt = enemyEnt;
+	}
 
 	gameLocal.clip.TracePoint( trace, start, end, MASK_SHOT_BOUNDINGBOX, this );
-	if ( ( trace.fraction == 1.0f ) || ( gameLocal.GetTraceEntity( trace ) == enemyEnt ) ) {
+	if ( ( trace.fraction == 1.0f ) || ( gameLocal.GetTraceEntity( trace ) == testEnt ) ) {
 		return true;
 	}
 
@@ -4469,12 +4913,19 @@ bool idAI::AttackMelee( const char *meleeDefName ) {
 	const char *p;
 	const idSoundShader *shader;
 
+	idEntity *victimEnt;
+	if( enemyEnt && enemyEnt->GetCurrentVehicle() ){
+		victimEnt = enemyEnt->GetCurrentVehicle();
+	}else{
+		victimEnt = enemyEnt;
+	}
+
 	meleeDef = gameLocal.FindEntityDefDict( meleeDefName, false );
 	if ( !meleeDef ) {
 		gameLocal.Error( "Unknown melee '%s'", meleeDefName );
 	}
 
-	if ( !enemyEnt ) {
+	if ( !victimEnt ) {
 		p = meleeDef->GetString( "snd_miss" );
 		if ( p && *p ) {
 			shader = declManager->FindSound( p );
@@ -4486,12 +4937,12 @@ bool idAI::AttackMelee( const char *meleeDefName ) {
 	// check for the "saving throw" automatic melee miss on lethal blow
 	// stupid place for this.
 	bool forceMiss = false;
-	if ( enemyEnt->IsType( idPlayer::Type ) && g_skill.GetInteger() < 2 ) {
+	if ( victimEnt->IsType( idPlayer::Type ) && g_skill.GetInteger() < 2 ) { //this won't be done for vehicles
 		int	damage, armor;
-		idPlayer *player = static_cast<idPlayer*>( enemyEnt );
-		player->CalcDamagePoints( this, this, meleeDef, 1.0f, INVALID_JOINT, &damage, &armor );
+		idPlayer *player = static_cast<idPlayer*>( victimEnt );
+		player->CalcDamagePoints( this, this, meleeDef, meleeDamageScale /*was: 1.0f*/, INVALID_JOINT, &damage, &armor );
 
-		if ( enemyEnt->health <= damage ) {
+		if ( victimEnt->health <= damage ) {
 			int	t = gameLocal.time - player->lastSavingThrowTime;
 			if ( t > SAVING_THROW_TIME ) {
 				player->lastSavingThrowTime = gameLocal.time;
@@ -4530,7 +4981,8 @@ bool idAI::AttackMelee( const char *meleeDefName ) {
 	idVec3	globalKickDir;
 	globalKickDir = ( viewAxis * physicsObj.GetGravityAxis() ) * kickDir;
 
-	enemyEnt->Damage( this, this, globalKickDir, meleeDefName, 1.0f, INVALID_JOINT );
+	victimEnt->Damage( this, this, globalKickDir, meleeDefName, meleeDamageScale /*was: 1.0f*/, INVALID_JOINT );
+	DamageEffect( meleeDefName, victimEnt, GetEyePosition(), melee_range ); //ff1.3
 
 	lastAttackTime = gameLocal.time;
 
@@ -4570,8 +5022,8 @@ void idAI::PushWithAF( void ) {
 			pushed_ents[num_pushed++] = ent;
 			vel = ent->GetPhysics()->GetAbsBounds().GetCenter() - touchList[ i ].touchedByBody->GetWorldOrigin();
 			vel.Normalize();
-			if ( attack.Length() && ent->IsType( idActor::Type ) ) {
-				ent->Damage( this, this, vel, attack, 1.0f, INVALID_JOINT );
+			if ( attack.Length() && ( ent->IsType( idActor::Type ) || ent->IsType( idAFEntity_Vehicle::Type ) ) ) {
+				ent->Damage( this, this, vel, attack, meleeDamageScale /*1.0f*/, INVALID_JOINT );
 			} else {
 				ent->GetPhysics()->SetLinearVelocity( 100.0f * vel, touchList[ i ].touchedClipModel->GetId() );
 			}
@@ -4697,6 +5149,10 @@ void idAI::Show( void ) {
 	fl.takedamage = !spawnArgs.GetBool( "noDamage" );
 	SetChatSound();
 	StartSound( "snd_ambient", SND_CHANNEL_AMBIENT, 0, false, NULL );
+
+	//ff1.3 start
+	UpdateFriendFx(); //restore hidden fx
+	//ff1.3 end
 }
 
 /*
@@ -4836,6 +5292,7 @@ void idAI::TriggerParticles( const char *jointName ) {
 }
 
 #ifdef _D3XP
+/* ff1.1 - moved to idAnimatedEntity
 void idAI::TriggerFX( const char* joint, const char* fx ) {
 
 	if( !strcmp(joint, "origin") ) {
@@ -4855,10 +5312,11 @@ void idAI::TriggerFX( const char* joint, const char* fx ) {
 		idEntityFx::StartFx( fx, &joint_origin, &joint_axis, this, true );
 	}
 }
+*/
 
-idEntity* idAI::StartEmitter( const char* name, const char* joint, const char* particle ) {
+idFuncEmitter* idAI::StartEmitter( const char* name, const char* joint, const char* particle, bool orientated ) {
 
-	idEntity* existing = GetEmitter(name);
+	idFuncEmitter* existing = GetEmitter(name);
 	if(existing) {
 		return existing;
 	}
@@ -4915,14 +5373,18 @@ idEntity* idAI::StartEmitter( const char* name, const char* joint, const char* p
 	funcEmitters.Set(newEmitter.name, newEmitter);
 
 	//Bind it to the joint and make it active
-	newEmitter.particle->BindToJoint(this, jointNum, true);
+	newEmitter.particle->BindToJoint(this, jointNum, orientated); //was: true
 	newEmitter.particle->BecomeActive(TH_THINK);
-	newEmitter.particle->Show();
+	if ( IsHidden() ) { //ff1.3 - start hidden if the monster is hidden
+		newEmitter.particle->Hide();
+	} else {
+		newEmitter.particle->Show();
+	}
 	newEmitter.particle->PostEventMS(&EV_Activate, 0, this);
 	return newEmitter.particle;
 }
 
-idEntity* idAI::GetEmitter( const char* name ) {
+idFuncEmitter* idAI::GetEmitter( const char* name ) {
 	funcEmitter_t* emitter;
 	funcEmitters.Get(name, &emitter);
 	if(emitter) {
@@ -4934,12 +5396,64 @@ idEntity* idAI::GetEmitter( const char* name ) {
 void idAI::StopEmitter( const char* name ) {
 	funcEmitter_t* emitter;
 	funcEmitters.Get(name, &emitter);
-	if(emitter) {
+	if( emitter ) {
 		emitter->particle->Unbind();
 		emitter->particle->PostEventMS( &EV_Remove, 0 );
 		funcEmitters.Remove(name);
 	}
 }
+
+//ff1.3 start
+/*
+void idAI::SetEmitterVisible( const char* name, bool on ) {
+	funcEmitter_t* emitter;
+	funcEmitters.Get(name, &emitter);
+	if ( emitter && emitter->particle->IsEmitterHidden() == on ) {
+		//slave->CancelEvents( &EV_Mover_ReturnToPos1 );
+		emitter->particle->PostEventMS(&EV_Activate, 0, this);
+	}
+}
+*/
+
+void idAI::ChangeTeam( int newTeam ){
+	if ( team != newTeam ) {
+		EnemyDead(); //make sure the current enemy is cleared and AI goes back to idle state
+		team = newTeam;
+		UpdateFriendFx();
+	}
+}
+
+void idAI::UpdateFriendFx( void ){
+	//gameLocal.Printf("idAI::UpdateFriendFx\n");
+	if ( team == 0 ) {
+		idFuncEmitter* emitter = GetEmitter( FRIEND_FX_NAME );
+		if ( emitter ) {
+			if ( emitter->IsEmitterHidden() == health > 0 ) {
+				//gameLocal.Printf("idAI::UpdateFriendFx -> SetEmitterVisible at %d\n", gameLocal.time);
+				//SetEmitterVisible( FRIEND_FX_NAME, health > 0 );
+				emitter->CancelEvents(&EV_Activate); //don't trigger twice this frame
+				emitter->PostEventMS(&EV_Activate, 0, this);
+			}
+		} else if ( health > 0 && spawnArgs.GetBool( "showFriendFx" ) ) {
+			//gameLocal.Printf("idAI::UpdateFriendFx -> StartEmitter  at %d\n", gameLocal.time);
+			StartEmitter( FRIEND_FX_NAME, FRIEND_FX_JOINT, FRIEND_FX_MODEL, false );
+		}
+	} else {
+		StopEmitter( FRIEND_FX_NAME );
+		//gameLocal.Printf("idAI::UpdateFriendFx -> StopEmitter  at %d\n", gameLocal.time);
+	}
+}
+
+/*
+================
+idAI::CanBeRidden
+================
+*/
+bool idAI::CanBeRidden( void ) {
+	return (health > 0) && (team != 0) && spawnArgs.GetBool("canBecomeFriend", "0"); //TODO use its own key?
+}
+
+//ff1.3 end
 
 #endif
 
@@ -4989,6 +5503,8 @@ bool idAI::UpdateAnimationControllers( void ) {
 		orientationJointAxis = idAngles( 0.0f, orientationJointYaw, 0.0f ).ToMat3();
 	}
 
+	idActor::UpdateAnimationControllers(); //ff1.3 - Update the IK before calculating eyes position
+
 	if ( focusJoint != INVALID_JOINT ) {
 		if ( headEnt ) {
 			headEnt->GetJointWorldTransform( focusJoint, gameLocal.time, eyepos, axis );
@@ -5007,6 +5523,7 @@ bool idAI::UpdateAnimationControllers( void ) {
 		CopyJointsFromBodyToHead();
 	}
 
+	/* ff1.3 - removed
 	// Update the IK after we've gotten all the joint positions we need, but before we set any joint positions.
 	// Getting the joint positions causes the joints to be updated.  The IK gets joint positions itself (which
 	// are already up to date because of getting the joints in this function) and then sets their positions, which
@@ -5015,6 +5532,7 @@ bool idAI::UpdateAnimationControllers( void ) {
 	// head entity and no ik will only transform their joints once.  Set g_debuganim to the current entity number
 	// in order to see how many times an entity transforms the joints per frame.
 	idActor::UpdateAnimationControllers();
+	*/
 
 	idEntity *focusEnt = focusEntity.GetEntity();
 	if ( !allowJointMod || !allowEyeFocus || ( gameLocal.time >= focusTime ) ) {
@@ -5022,10 +5540,22 @@ bool idAI::UpdateAnimationControllers( void ) {
 	} else if ( focusEnt == NULL ) {
 		// keep looking at last position until focusTime is up
 		focusPos = currentFocusPos;
+
+		//ff1.3 start
+		if ( focusPosOnlyInRange ) {
+			newLookAng.yaw = idMath::AngleNormalize180( (currentFocusPos - orientationJointPos).ToYaw() - orientationJointYaw );
+			//gameLocal.Printf("newLookAng yaw %f\n", newLookAng.yaw);
+			if ( newLookAng.yaw < lookMin.yaw || newLookAng.yaw > lookMax.yaw ) {
+				focusPos = GetEyePosition() + orientationJointAxis[ 0 ] * 512.0f;
+			}
+		}
+		//ff1.3 end
 	} else if ( focusEnt == enemy.GetEntity() ) {
 		focusPos = lastVisibleEnemyPos + lastVisibleEnemyEyeOffset - eyeVerticalOffset * enemy.GetEntity()->GetPhysics()->GetGravityNormal();
 	} else if ( focusEnt->IsType( idActor::Type ) ) {
-		focusPos = static_cast<idActor *>( focusEnt )->GetEyePosition() - eyeVerticalOffset * focusEnt->GetPhysics()->GetGravityNormal();
+		focusPos = (static_cast<idActor *>( focusEnt )->GetCurrentVehicle() ? static_cast<idActor *>( focusEnt )->GetCurrentVehicle()->GetEyePosition() : static_cast<idActor *>( focusEnt )->GetEyePosition() ) - eyeVerticalOffset * focusEnt->GetPhysics()->GetGravityNormal();
+	} else if ( focusEnt->IsType( idAFEntity_Vehicle::Type ) ) {
+		focusPos = static_cast<idAFEntity_Vehicle *>( focusEnt )->GetEyePosition() - eyeVerticalOffset * focusEnt->GetPhysics()->GetGravityNormal();
 	} else {
 		focusPos = focusEnt->GetPhysics()->GetOrigin();
 	}
@@ -5052,6 +5582,11 @@ bool idAI::UpdateAnimationControllers( void ) {
 	newLookAng.roll	= 0.0f;
 
 	diff = newLookAng - lookAng;
+
+	//ff1.3 start
+	//if ( diff.yaw != 0.0f )
+	//	gameLocal.Printf("newLookAng yaw %f\n", newLookAng.yaw);
+	//ff1.3 end
 
 	if ( eyeAng != diff ) {
 		eyeAng = diff;
@@ -5302,7 +5837,7 @@ bool idCombatNode::EntityInView( idActor *actor, const idVec3 &pos ) {
 		return false;
 	}
 
-	const idBounds &bounds = actor->GetPhysics()->GetBounds();
+	const idBounds &bounds = ( actor->GetCurrentVehicle() ) ? actor->GetCurrentVehicle()->GetPhysics()->GetBounds() : actor->GetPhysics()->GetBounds();
 	if ( ( pos.z + bounds[ 1 ].z < min_height ) || ( pos.z + bounds[ 0 ].z >= max_height ) ) {
 		return false;
 	}
@@ -5348,3 +5883,1236 @@ void idCombatNode::Event_MarkUsed( void ) {
 		disabled = true;
 	}
 }
+
+
+//ff1.3 start
+
+/*
+===============================================================================
+
+  idAI_Rideable
+
+===============================================================================
+*/
+
+const idEventDef AI_UnbindDriver( "unbindDriver" );
+const idEventDef AI_FaceIdeal( "faceIdeal" );
+const idEventDef AI_FaceIdealOffset( "faceIdealOffset", "f" );
+const idEventDef AI_GetIdealAngles( "getIdealAngles", "f", 'v' );
+const idEventDef AI_LookAtEnemyOrAimPos( "lookAtEnemyOrAimPos", "f" );
+const idEventDef AI_LookAtAimPos( "lookAtAimPos", "f" );
+const idEventDef AI_StopRiding( "stopRiding" );
+
+CLASS_DECLARATION( idAI, idAI_Rideable )
+	EVENT( EV_GetDriver,				idAI_Rideable::Event_GetDriver )
+	EVENT( EV_GetFireMode,				idAI_Rideable::Event_GetFireMode )
+	EVENT( EV_GetAimAngles,				idAI_Rideable::Event_GetAimAngles )
+	EVENT( AI_UnbindDriver,				idAI_Rideable::Event_UnbindDriver )
+	EVENT( AI_FaceIdeal,				idAI_Rideable::Event_FaceIdeal )
+	EVENT( AI_FaceIdealOffset,			idAI_Rideable::Event_FaceIdealOffset )
+	EVENT( AI_GetIdealAngles,			idAI_Rideable::Event_GetIdealAngles )
+	EVENT( AI_LookAtEnemyOrAimPos,		idAI_Rideable::Event_LookAtEnemyOrAimPos )
+	EVENT( AI_LookAtAimPos,				idAI_Rideable::Event_LookAtAimPos )
+	EVENT( EV_Player_GetMove,			idAI_Rideable::Event_GetMove ) //shortcut
+	EVENT( AI_AttackMissile,			idAI_Rideable::Event_AttackMissile ) //override AI event
+	EVENT( AI_StartRiding,				idAI_Rideable::Event_StartRiding ) //override AI event
+	EVENT( AI_StopRiding,				idAI_Rideable::Event_StopRiding)
+	EVENT( AI_EnableClip,				idAI_Rideable::Event_EnableClip ) //override AI event
+	EVENT( EV_Remove,					idAI_Rideable::Event_Remove ) //override entity event
+	//EVENT( AI_MeleeAttackToJoint,		idAI_Rideable::Event_MeleeAttackToJoint ) //override AI event
+END_CLASS
+
+/*
+================
+idAI_Rideable::idAI_Rideable
+================
+*/
+idAI_Rideable::idAI_Rideable( void ) {
+	timeMode					= false;
+	rideEndTime					= 0;
+	lastStopRequestTime			= 0;
+	rideStatus					= RIDE_STATUS_NOTREADY;
+	driver						= NULL;
+	thirdPersonRange			= 0.0f;
+	thirdPersonHeight			= 0.0f;
+	currentFireMode				= 0;
+	weaponBarSlot				= 0;
+	numFireModes				= 0;
+	hudPulseFlags				= 0;
+	cameraOffset.Zero();
+	aimPos.Zero();
+}
+
+/*
+================
+idAI_Rideable::Spawn
+================
+*/
+void idAI_Rideable::Spawn( void ) {
+	//camera settings
+	spawnArgs.GetFloat("thirdPersonRange", "100", thirdPersonRange);
+	spawnArgs.GetFloat("thirdPersonHeight", "50", thirdPersonHeight);
+	spawnArgs.GetVector("cameraOffset", "0 0 30", cameraOffset); //keep it low so it doesn't intersect walls
+
+	//attack settings
+	spawnArgs.GetInt("numFireModes", "1", numFireModes);
+	spawnArgs.GetInt("weaponBarSlot", "-1", weaponBarSlot);
+	if ( numFireModes > 1 ) {
+		currentFireMode = 1;
+	}
+
+	//damage multipliers
+	meleeDamageScale = spawnArgs.GetFloat("melee_dmg_scale", "1");
+	projectileDamageScale = spawnArgs.GetFloat("projectile_dmg_scale", "1");
+
+	//triggers
+	canTouchTriggers = false;
+	forcedMovements = true;
+
+	//player or monster clip
+	if ( spawnArgs.GetBool("monsterClip") ) {
+		//use monster clip
+	} else {
+		physicsObj.SetClipMask( MASK_PLAYERSOLID ); //player clip
+	}
+
+	spawnArgs.GetBool(RIDEABLE_TIMEMODE_SPAWNARG, "0", timeMode);
+	rideStatus = RIDE_STATUS_READY;
+	fl.takedamage = false; //only allow damage while active
+}
+
+/*
+=====================
+idAI_Rideable::Event_EnableClip
+Override to use player clip
+=====================
+*/
+void idAI_Rideable::Event_EnableClip( void ) {
+	physicsObj.SetClipMask( MASK_PLAYERSOLID );
+	disableGravity = false;
+}
+
+/*
+=====================
+idAI_Rideable::LinkScriptVariables
+=====================
+*/
+void idAI_Rideable::LinkScriptVariables( void ) {
+	idAI::LinkScriptVariables();
+	AI_ATTACK.LinkTo( scriptObject, "AI_ATTACK" );
+	AI_SEC_ATTACK.LinkTo( scriptObject, "AI_SEC_ATTACK" );
+	AI_RELOAD.LinkTo( scriptObject, "AI_RELOAD" );
+}
+
+
+/*
+==================
+idAI_Rideable::Save
+==================
+*/
+void idAI_Rideable::Save( idSaveGame *savefile ) const {
+	savefile->WriteBool(timeMode);
+	savefile->WriteInt(rideEndTime);
+	savefile->WriteInt(lastStopRequestTime);
+	savefile->WriteInt(rideStatus);
+	savefile->WriteObject(driver);
+	savefile->WriteFloat(thirdPersonRange);
+	savefile->WriteFloat(thirdPersonHeight);
+	savefile->WriteInt(currentFireMode);
+	savefile->WriteInt(weaponBarSlot);
+	savefile->WriteInt(numFireModes);
+	savefile->WriteInt(hudPulseFlags);
+	savefile->WriteVec3(aimPos);
+	savefile->WriteVec3(cameraOffset);
+}
+/*
+==================
+idAI_Rideable::Restore
+==================
+*/
+void idAI_Rideable::Restore( idRestoreGame *savefile ) {
+	savefile->ReadBool(timeMode);
+	savefile->ReadInt(rideEndTime);
+	savefile->ReadInt(lastStopRequestTime);
+	savefile->ReadInt(rideStatus);
+	savefile->ReadObject(reinterpret_cast<idClass *&>(driver));
+	savefile->ReadFloat(thirdPersonRange);
+	savefile->ReadFloat(thirdPersonHeight);
+	savefile->ReadInt(currentFireMode);
+	savefile->ReadInt(weaponBarSlot);
+	savefile->ReadInt(numFireModes);
+	savefile->ReadInt(hudPulseFlags);
+	savefile->ReadVec3(aimPos);
+	savefile->ReadVec3(cameraOffset);
+}
+
+/*
+================
+idAI_Rideable::UpdateAttack
+Invoked by idAI::Think
+================
+*/
+void idAI_Rideable::UpdateAttack( void ) {
+	AI_ATTACK = false;
+	AI_SEC_ATTACK = false;
+	//AI_RELOAD = false; //reset by scripts
+
+	if ( driver ) {
+		if ( !gameLocal.inCinematic ) {
+			if ( driver->usercmd.buttons & BUTTON_ATTACK ) {
+				AI_ATTACK = true;
+			}
+			if ( driver->usercmd.buttons & BUTTON_5 ) {
+				AI_SEC_ATTACK = true;
+			}
+			if ( driver->objectiveSystemOpen && AI_PAIN ) {
+				driver->TogglePDA();
+			}
+		}
+
+		if ( timeMode ) {
+			if ( gameLocal.inCinematic || driver->GetPrivateCameraView() ) {
+				rideEndTime += gameLocal.msec;
+			} else if ( rideEndTime > 0 && rideEndTime < gameLocal.time ) {
+				rideEndTime = 0;
+				PostEventMS( &AI_StopRiding, 0 );
+			}
+		}
+	}
+
+	UpdateAim();
+}
+
+/*
+================
+idAI_Rideable::UpdateAim
+================
+*/
+void idAI_Rideable::UpdateAim( void ) {
+	if ( !gameLocal.inCinematic && driver && driver->renderView ) {
+		renderView_t *driverView = driver->renderView;
+
+		idVec3 end = driverView->vieworg + driverView->viewaxis[ 0 ] * 3000.0f;
+		trace_t trace;
+		gameLocal.clip.TracePoint( trace, driverView->vieworg, end, MASK_SOLID|CONTENTS_RENDERMODEL, this );
+		if ( trace.fraction < 1.0f ) {
+			aimPos = trace.endpos;
+
+			//set the enemy so that scripts, melee attacks and guided projectiles work like standard AI
+			idEntity* aimTarget = gameLocal.GetTraceEntity( trace );
+			if ( aimTarget
+				&& aimTarget->health > 0
+				&& aimTarget != enemy.GetEntity()
+				&& aimTarget->IsType( idActor::Type )
+			) {
+				idActor *actor = static_cast<idActor *>( aimTarget );
+				if ( ReactionTo( actor ) != ATTACK_IGNORE ) {
+					//gameLocal.Printf("idAI_Rideable::UpdateAim - enemy %s\n", actor->GetName() );
+					SetEnemy( actor );
+				}
+			}
+		} else {
+			aimPos = end;
+		}
+	} else {
+		aimPos = physicsObj.GetOrigin() + viewAxis[ 0 ] * 3000.0f;
+	}
+}
+
+/*
+===============
+idAI_Rideable::GetCameraPos
+===============
+*/
+void idAI_Rideable::GetCameraPos( idVec3 &origin, idMat3 &axis ) {
+	origin = physicsObj.GetOrigin() + cameraOffset * viewAxis;
+	axis = viewAxis;
+}
+
+/*
+============
+idAI_Rideable::IgnoreDamage
+============
+*/
+bool idAI_Rideable::IgnoreDamage( idEntity *inflictor, idEntity *attacker, const idDict *damageDef, float *additionalDamageScale ){
+	if ( driver && ( driver->godmode || driver->GetPrivateCameraView() ) ) {
+		return true;
+	}
+
+	if ( gameLocal.inCinematic ) {
+		return true;
+	}
+
+	if ( damageDef->GetBool( "ignore_rideable" ) ) {
+		return true;
+	}
+
+	if ( attacker != this ) { //allow self-damage
+		if ( attacker->IsType( idActor::Type ) ) {
+			if ( static_cast<idActor *>(attacker)->team == 0 ) {
+				return true; //disable friendly fire
+			}
+		}
+		//handle damage of projectiles fired by already-removed friends (rare, but could happen)
+		else if ( inflictor->IsType( idProjectile::Type ) && static_cast<idProjectile *>(inflictor)->FiredByFriend() ) {
+			gameLocal.Warning( "Ignored damage for projectile fired by removed friend");
+			return true; //disable friendly fire
+		}
+	}
+
+	float skillScale = 1.0f;
+	if ( !gameLocal.isMultiplayer && inflictor != gameLocal.world ) {
+		switch ( g_skill.GetInteger() ) {
+			case 0:
+				skillScale = 0.9f;
+				break;
+			case 2:
+				skillScale = 1.1f;
+				break;
+			case 3:
+				skillScale = 1.2f;
+				break;
+			default:
+				break;
+		}
+	}
+
+	*additionalDamageScale = skillScale * damageDef->GetFloat("rideableDamageScale", "1");
+	return false;
+}
+
+/*
+============
+idAI_Rideable::Killed
+============
+*/
+void idAI_Rideable::Killed( idEntity *inflictor, idEntity *attacker, int damage, const idVec3 &dir, int location ) {
+	if ( driver ) {
+		if ( timeMode ) { //usually it cannot die in timemode, but zombie bomb can
+			UnbindDriver(false);
+		} else {
+			driver->Kill(false, false);
+		}
+	}
+	idAI::Killed( inflictor, attacker, damage, dir, location );
+}
+
+/*
+================
+idAI_Rideable::Show
+================
+*/
+void idAI_Rideable::Show( void ) {
+	idAI::Show();
+	fl.takedamage = (rideStatus == RIDE_STATUS_STARTED);
+}
+
+/*
+===============
+idAI_Rideable::PerformImpulse
+===============
+*/
+bool idAI_Rideable::PerformImpulse( int impulse ) {
+	//weapons impulses
+	if ( (impulse >= IMPULSE_0 && impulse <= IMPULSE_12) || ( impulse >= IMPULSE_23 && impulse <= IMPULSE_28 ) ) {
+		switch( impulse ) { //supports 10 weapons (use same keys as the player)
+			case IMPULSE_2: {
+				SelectWeapon( 0 );
+				break;
+			}
+			case IMPULSE_3: {
+				SelectWeapon( 1 );
+				break;
+			}
+			case IMPULSE_5: {
+				SelectWeapon( 2 );
+				break;
+			}
+			case IMPULSE_7: {
+				SelectWeapon( 3 );
+				break;
+			}
+			case IMPULSE_8: {
+				SelectWeapon( 4 );
+				break;
+			}
+			case IMPULSE_9: {
+				SelectWeapon( 5 );
+				break;
+			}
+			case IMPULSE_11: {
+				SelectWeapon( 6 );
+				break;
+			}
+			case IMPULSE_23: {
+				SelectWeapon( 7 );
+				break;
+			}
+			case IMPULSE_24: {
+				SelectWeapon( 8 );
+				break;
+			}
+			case IMPULSE_25: {
+				SelectWeapon( 9 );
+				break;
+			}
+		}
+		return true;
+	}
+
+	//other impulses
+	switch( impulse ) {
+		case IMPULSE_13: {
+			AI_RELOAD = true;
+			return true;
+		}
+		case IMPULSE_14: {
+			NextWeapon();
+			return true;
+		}
+		case IMPULSE_15: {
+			PrevWeapon();
+			return true;
+		}
+		case IMPULSE_21: {
+			/*
+			if ( rideStatus == RIDE_STATUS_STARTED ) {
+				if ( !timeMode ) { //spawnArgs.GetBool("noExit")
+					hudPulseFlags |= HUD_RIDE_PULSE_EXIT_DISABLED;
+				} else if ( lastStopRequestTime > 0 && gameLocal.time < lastStopRequestTime + 1000 ) {
+					PostEventMS( &AI_StopRiding, 0 );
+				} else {
+					hudPulseFlags |= HUD_RIDE_PULSE_EXIT_1MORE;
+					lastStopRequestTime = gameLocal.time;
+				}
+			}
+			*/
+			return true;
+		}
+	}
+	return false;
+}
+
+/*
+===============
+idAI_Rideable::SelectWeapon
+===============
+*/
+void idAI_Rideable::SelectWeapon( int num ){
+	if ( num >= 0 && num < numFireModes && num != currentFireMode ) {
+		currentFireMode = num;
+		hudPulseFlags |= HUD_RIDE_PULSE_WEAPON;
+	}
+}
+
+/*
+===============
+idAI_Rideable::NextWeapon
+===============
+*/
+void idAI_Rideable::NextWeapon( void ) {
+	currentFireMode++;
+	if ( currentFireMode >= numFireModes ) {
+		currentFireMode = 0;
+	}
+	hudPulseFlags |= HUD_RIDE_PULSE_WEAPON;
+}
+
+/*
+===============
+idAI_Rideable::PrevWeapon
+===============
+*/
+void idAI_Rideable::PrevWeapon( void ) {
+	currentFireMode--;
+	if ( currentFireMode < 0 ) {
+		currentFireMode = numFireModes-1;
+	}
+	hudPulseFlags |= HUD_RIDE_PULSE_WEAPON;
+}
+
+/*
+===============
+idAI_Rideable::InitHudStats
+===============
+*/
+void idAI_Rideable::InitHudStats( idUserInterface *hud, idUserInterface *cursor ) {
+	if ( hud ) {
+		//hud->SetStateInt( "sentry_health_max", spawnArgs.GetInt("health") );
+		if ( timeMode ) {
+			hud->HandleNamedEvent( "show_timer" ); //spawnArgs.GetString("hudTimeEvent", "health_mode_time") );
+		}
+		if ( weaponBarSlot != -1 ) {
+			hud->HandleNamedEvent( va( "set_weapon_bar_icon%i", weaponBarSlot ) );
+		} else {
+			hud->HandleNamedEvent( "hide_weapon_bar");
+		}
+		hud->HandleNamedEvent( spawnArgs.GetString("hudHealthEvent", "health_mode_soul") );
+		hud->HandleNamedEvent( spawnArgs.GetString("hudWeaponEvent", "setup_melee_only") );
+		hud->HandleNamedEvent( "start_riding" );
+	}
+
+	if ( cursor ) {
+		cursor->HandleNamedEvent( spawnArgs.GetString("cursorEvent", "hideCursor") ); //enableSentryCursor
+	}
+}
+
+/*
+===============
+idAI_Rideable::UpdateHudStats
+===============
+*/
+void idAI_Rideable::UpdateHudStats( idUserInterface *hud ) {
+	if ( !hud ) {
+		return;
+	}
+	if ( timeMode ) {
+		if ( rideStatus == RIDE_STATUS_STARTED ) { //stop updating the timer while exiting
+			hud->SetStateInt( "sentry_timer", (rideEndTime > gameLocal.time) ? (rideEndTime - gameLocal.time)/1000 : 0 );
+		}
+	}
+
+	hud->SetStateInt( "sentry_health", health );
+	hud->SetStateFloat( "sentry_health_pct", health / spawnArgs.GetFloat("health") );
+
+	if ( hudPulseFlags ) {
+		if ( hudPulseFlags & HUD_RIDE_PULSE_WEAPON ) {
+			hud->HandleNamedEvent( va( "select_a%i", currentFireMode ) );
+
+			/*
+			if ( weaponBarSlot != -1 ) {
+				if ( currentFireMode == weaponBarSlot ) {
+					hud->HandleNamedEvent( va( "set_weapon_bar_icon%i", weaponBarSlot ) );
+				} else {
+					hud->HandleNamedEvent( "hide_weapon_bar");
+				}
+			}
+			*/
+		}
+		/*
+		if ( hudPulseFlags & HUD_RIDE_PULSE_EXIT_DISABLED ) {
+			hud->HandleNamedEvent( "rideableExitDisabled" );
+		}
+
+		if ( hudPulseFlags & HUD_RIDE_PULSE_EXIT_1MORE ) {
+			hud->HandleNamedEvent( "rideableExit1More" );
+		}
+		*/
+		hudPulseFlags = 0;
+	}
+}
+
+/*
+=====================
+idAI_Rideable::Event_StartRiding
+=====================
+*/
+void idAI_Rideable::Event_StartRiding( idEntity* ent, int checkSkippedTriggers ){
+	idPlayer *player;
+
+	if ( rideStatus != RIDE_STATUS_READY ) {
+		gameLocal.Warning("Unexpected ride status: %d", rideStatus);
+		return;
+	}
+
+	if ( driver || AI_DEAD ) {
+		return;
+	}
+
+	if ( !ent || !ent->IsType( idPlayer::Type ) ) {
+		gameLocal.Warning("%s: driver is not an idPlayer", name.c_str());
+		return;
+	}
+
+	player = static_cast< idPlayer * >( ent );
+	if ( !player->CanEnterAI() ) {
+		return;
+	}
+
+	player->EnterAI(this);
+	driver = player;
+	canTouchTriggers = true;
+	fl.takedamage = true;
+
+	if ( timeMode ) {
+		rideEndTime = gameLocal.time + ff_rideable_time.GetInteger()*1000;
+	} else {
+		rideEndTime = 0;
+	}
+
+	const idVec3 oldDriverPos = driver->GetPhysics()->GetAbsBounds().GetCenter();
+
+	// move up to make sure the driver is at least an epsilon above the floor
+	driver->GetPhysics()->SetOrigin( physicsObj.GetOrigin() + idVec3( 0, 0, RIDE_DRIVER_OFFSET ) );
+	driver->BindToBody( this, 0, false );
+	driver->SetViewAngles( idAngles( 0, current_yaw, 0 ) );
+	rideStatus = RIDE_STATUS_STARTED;
+	hudPulseFlags |= HUD_RIDE_PULSE_WEAPON;
+	SetState( "state_RideStarted" );
+
+	if ( checkSkippedTriggers ) {
+		TriggerSkippedTriggers( oldDriverPos );
+	}
+
+}
+
+/*
+================
+idAI_Rideable::Event_StopRiding
+================
+*/
+void idAI_Rideable::Event_StopRiding( void ) {
+	if ( rideStatus != RIDE_STATUS_STARTED ) {
+		gameLocal.Warning("Unexpected ride status: %d", rideStatus);
+		return;
+	}
+
+	if ( driver && !AI_DEAD ){
+		fl.takedamage = false;
+		rideStatus = RIDE_STATUS_STOPPED;
+		SetState( "state_RideStopped" );
+	}
+}
+
+/*
+================
+idAI_Rideable::Event_Remove
+================
+*/
+void idAI_Rideable::Event_Remove( void ) {
+	UnbindDriver(false);
+	idAI::Event_Remove();
+}
+
+/*
+==================
+idAI_Rideable::Event_UnbindDriver
+==================
+*/
+void idAI_Rideable::Event_UnbindDriver( void ){
+	if ( rideStatus != RIDE_STATUS_STOPPED ) {
+		gameLocal.Warning("Unexpected ride status: %d", rideStatus);
+		return;
+	}
+	UnbindDriver(false);
+}
+
+/*
+==================
+idAI_Rideable::UnbindDriver
+==================
+*/
+void idAI_Rideable::UnbindDriver( bool driverKilled ){
+	if ( driver ) {
+		driver->ExitAI(driverKilled);
+		driver->Unbind();
+		SetDriverInValidPosition();
+		driver = NULL;
+		canTouchTriggers = false;
+
+		//clear enemies
+		idActor *ent;
+		int num = 0;
+		for( ent = enemyList.Next(); ent != NULL; ent = ent->enemyNode.Next() ) {
+			if ( ent->IsType( idAI::Type ) ) {
+				static_cast<idAI*>(ent)->PostEventMS( &AI_ClearEnemy, 0 );
+			}
+		}
+		rideStatus = RIDE_STATUS_READY;
+	}
+}
+
+/*
+==================
+idAI_Rideable::SetDriverInValidPosition
+==================
+*/
+void idAI_Rideable::SetDriverInValidPosition( void ){
+	idVec3 from, to;
+	trace_t trace;
+
+	const idBounds &driverBounds = driver->GetPhysics()->GetBounds();
+	//gameLocal.Printf("driverBounds[1][2]: %f, driverBounds[0][2]: %f\n", driverBounds[1][2] , driverBounds[0][2]);
+
+	const idBounds &bounds = physicsObj.GetBounds();
+	//gameLocal.Printf("bounds[1][2]: %f, bounds[0][2]: %f\n", bounds[1][2] , bounds[0][2]);
+
+	float shorterThanDriverDelta = (driverBounds[1][2] - driverBounds[0][2]) - (bounds[1][2] - bounds[0][2]) + RIDE_DRIVER_OFFSET;
+	//gameLocal.Printf("shorterThanDriverDelta: %f\n", shorterThanDriverDelta);
+	if ( shorterThanDriverDelta > 0 ) {
+		from = physicsObj.GetOrigin();
+		to = from;
+		to.z -= shorterThanDriverDelta; //check the ground
+
+		gameLocal.clip.TracePoint( trace, from, to, MASK_SOLID, this );
+		//gameLocal.Printf("trace.fraction: %f\n", trace.fraction);
+
+		if ( trace.fraction < 1.0f ) {
+			driver->GetPhysics()->SetOrigin( trace.endpos + idVec3( 0, 0, RIDE_DRIVER_OFFSET ) );
+		} else {
+			driver->GetPhysics()->SetOrigin( to + idVec3( 0, 0, RIDE_DRIVER_OFFSET ) );
+		}
+	}
+}
+
+
+/*
+==================
+idAI_Rideable::Event_GetDriver
+==================
+*/
+void idAI_Rideable::Event_GetDriver( void ) {
+	idThread::ReturnEntity( driver );
+}
+
+/*
+==================
+idAI_Rideable::Event_GetFireMode
+==================
+*/
+void idAI_Rideable::Event_GetFireMode( void ) {
+	idThread::ReturnInt( currentFireMode );
+}
+
+/*
+==================
+idAI_Rideable::Event_GetAimAngles
+==================
+*/
+void idAI_Rideable::Event_GetAimAngles( const idVec3 &firePos ) {
+	idAngles angles = (aimPos - firePos).ToAngles();
+	idThread::ReturnVector( idVec3( angles[0], angles[1], angles[2] ) );
+}
+
+/*
+==================
+idAI_Rideable::Event_FaceIdeal
+==================
+*/
+void idAI_Rideable::Event_FaceIdeal( void ) {
+	if ( driver ) {
+		TurnToward( driver->viewAngles.yaw );
+	}
+}
+
+/*
+==================
+idAI_Rideable::Event_FaceIdealOffset
+==================
+*/
+void idAI_Rideable::Event_FaceIdealOffset( float offset ) {
+	if ( driver ) {
+		TurnToward( /*idMath::AngleNormalize180(*/ driver->viewAngles.yaw - offset /*)*/ );
+	}
+}
+
+/*
+==================
+idAI_Rideable::Event_GetIdealAngles
+==================
+*/
+void idAI_Rideable::Event_GetIdealAngles( float offset ) {
+	if ( driver ) {
+		float yaw = idMath::AngleNormalize180(driver->viewAngles.yaw - offset);
+		idThread::ReturnVector( idVec3( 0, yaw, 0 ) );
+	}
+}
+
+/*
+==================
+idAI_Rideable::Event_GetMove
+==================
+*/
+void idAI_Rideable::Event_GetMove( void ) {
+	idThread::ReturnVector( driver ? idVec3 ( driver->usercmd.forwardmove, driver->usercmd.rightmove, driver->usercmd.upmove ) : vec3_origin );
+}
+
+
+/*
+=====================
+idAI_Rideable::Event_AttackMissile
+=====================
+*/
+void idAI_Rideable::Event_AttackMissile( const char *jointname ) {
+	idThread::ReturnEntity( LaunchProjectile( jointname, true ) );
+}
+
+/*
+=====================
+idAI_Rideable::LaunchProjectile
+=====================
+*/
+idProjectile *idAI_Rideable::LaunchProjectile( const char *jointname, bool clampToAttackCone ) {
+	idVec3				muzzle;
+	idVec3				dir;
+	idVec3				start;
+	trace_t				tr;
+	idBounds			projBounds;
+	float				distance;
+	const idClipModel	*projClip;
+	float				attack_accuracy;
+	float				attack_cone;
+	float				projectile_spread;
+	float				diff;
+	float				angle;
+	float				spin;
+	idAngles			ang;
+	int					num_projectiles;
+	int					i;
+	idMat3				axis;
+#ifdef _D3XP
+	//idMat3				proj_axis;
+	bool				forceMuzzle;
+#endif
+	idVec3				tmp;
+	idProjectile		*lastProjectile;
+
+	if ( !projectileDef ) {
+		gameLocal.Warning( "%s (%s) doesn't have a projectile specified", name.c_str(), GetEntityDefName() );
+		return NULL;
+	}
+
+	attack_accuracy = spawnArgs.GetFloat( "attack_accuracy", "7" );
+	attack_cone = spawnArgs.GetFloat( "attack_cone", "70" );
+	projectile_spread = spawnArgs.GetFloat( "projectile_spread", "0" );
+	num_projectiles = spawnArgs.GetInt( "num_projectiles", "1" );
+#ifdef _D3XP
+	forceMuzzle = spawnArgs.GetBool( "forceMuzzle", "0" );
+#endif
+
+	GetMuzzle( jointname, muzzle, axis );
+
+	if ( !projectile.GetEntity() ) {
+		CreateProjectile( muzzle, axis[ 0 ] );
+	}
+
+	lastProjectile = projectile.GetEntity();
+
+	//ff start
+	/*was:
+	if ( target != NULL ) {
+		tmp = target->GetPhysics()->GetAbsBounds().GetCenter() - muzzle;
+		tmp.Normalize();
+		axis = tmp.ToMat3();
+	} else {
+		axis = viewAxis;
+	}
+	*/
+	tmp = aimPos - muzzle;
+	tmp.Normalize();
+	axis = tmp.ToMat3();
+	//ff end
+
+	// rotate it because the cone points up by default
+	tmp = axis[2];
+	axis[2] = axis[0];
+	axis[0] = -tmp;
+
+#ifdef _D3XP
+	//proj_axis = axis;
+#endif
+
+	if ( !forceMuzzle ) {	// _D3XP
+		// make sure the projectile starts inside the monster bounding box
+		const idBounds &ownerBounds = physicsObj.GetAbsBounds();
+		projClip = lastProjectile->GetPhysics()->GetClipModel();
+		projBounds = projClip->GetBounds().Rotate( axis );
+
+		// check if the owner bounds is bigger than the projectile bounds
+		if ( ( ( ownerBounds[1][0] - ownerBounds[0][0] ) > ( projBounds[1][0] - projBounds[0][0] ) ) &&
+			( ( ownerBounds[1][1] - ownerBounds[0][1] ) > ( projBounds[1][1] - projBounds[0][1] ) ) &&
+			( ( ownerBounds[1][2] - ownerBounds[0][2] ) > ( projBounds[1][2] - projBounds[0][2] ) ) ) {
+			if ( (ownerBounds - projBounds).RayIntersection( muzzle, viewAxis[ 0 ], distance ) ) {
+				start = muzzle + distance * viewAxis[ 0 ];
+			} else {
+				start = ownerBounds.GetCenter();
+			}
+		} else {
+			// projectile bounds bigger than the owner bounds, so just start it from the center
+			start = ownerBounds.GetCenter();
+		}
+
+		gameLocal.clip.Translation( tr, start, muzzle, projClip, axis, MASK_SHOT_RENDERMODEL, this );
+		muzzle = tr.endpos;
+	}
+
+	// set aiming direction
+	//ff start
+	//was: GetAimDir( muzzle, target, this, dir );
+	dir = aimPos - muzzle;
+	dir.Normalize();
+	//ff end
+	ang = dir.ToAngles();
+
+	// adjust his aim so it's not perfect.  uses sine based movement so the tracers appear less random in their spread.
+	float t = MS2SEC( gameLocal.time + entityNumber * 497 );
+	ang.pitch += idMath::Sin16( t * 5.1 ) * attack_accuracy;
+	ang.yaw	+= idMath::Sin16( t * 6.7 ) * attack_accuracy;
+
+	if ( clampToAttackCone ) {
+		// clamp the attack direction to be within monster's attack cone so he doesn't do
+		// things like throw the missile backwards if you're behind him
+		diff = idMath::AngleDelta( ang.yaw, current_yaw );
+		if ( diff > attack_cone ) {
+			ang.yaw = current_yaw + attack_cone;
+		} else if ( diff < -attack_cone ) {
+			ang.yaw = current_yaw - attack_cone;
+		}
+	}
+
+	axis = ang.ToMat3();
+
+	float spreadRad = DEG2RAD( projectile_spread );
+	for( i = 0; i < num_projectiles; i++ ) {
+		// spread the projectiles out
+		angle = idMath::Sin( spreadRad * gameLocal.random.RandomFloat() );
+		spin = (float)DEG2RAD( 360.0f ) * gameLocal.random.RandomFloat();
+		dir = axis[ 0 ] + axis[ 2 ] * ( angle * idMath::Sin( spin ) ) - axis[ 1 ] * ( angle * idMath::Cos( spin ) );
+		dir.Normalize();
+
+		// launch the projectile
+		if ( !projectile.GetEntity() ) {
+			CreateProjectile( muzzle, dir );
+		}
+		lastProjectile = projectile.GetEntity();
+		//ff1.3 - was: lastProjectile->Launch( muzzle, dir, vec3_origin );
+		lastProjectile->Launch( muzzle, dir, vec3_origin, 0.0f, 1.0f, projectileDamageScale );
+		projectile = NULL;
+	}
+
+	TriggerWeaponEffects( muzzle );
+
+	lastAttackTime = gameLocal.time;
+
+	return lastProjectile;
+}
+
+/*
+=====================
+idAI_Rideable::Event_LookAtAimPos
+=====================
+*/
+void idAI_Rideable::Event_LookAtAimPos( float duration ) {
+	if ( ( focusEntity.GetEntity() ) || ( focusTime < gameLocal.time ) ) {
+		focusEntity = NULL;
+		alignHeadTime = gameLocal.time;
+		forceAlignHeadTime = gameLocal.time + SEC2MS( 1 );
+		blink_time = 0;
+	}
+	currentFocusPos = aimPos; //explicitly update focus position!
+	focusTime = gameLocal.time + SEC2MS( duration );
+}
+
+/*
+=====================
+idAI_Rideable::Event_LookAtEnemyOrAimPos
+=====================
+*/
+void idAI_Rideable::Event_LookAtEnemyOrAimPos( float duration ) {
+	if ( !AI_ATTACK && !AI_SEC_ATTACK ) {
+		if ( enemy.GetEntity() ) {
+			focusPosOnlyInRange = false;
+			Event_LookAtEnemy( duration );
+			return;
+		}
+		else if ( focusEntity.GetSpawnId() && focusTime >= gameLocal.time ) { //dead enemy or custom target
+			//the main effect of the "duration" parameter is setting for how long we should look at a dead enemy
+			focusPosOnlyInRange = false;
+			return;
+		} else { //just looking around
+			focusPosOnlyInRange = true;
+		}
+	} else {
+		focusPosOnlyInRange = false;
+	}
+	Event_LookAtAimPos( duration );
+}
+
+/*
+================
+idAI_Rideable::Teleport
+================
+*/
+void idAI_Rideable::Teleport( const idVec3 &origin, const idAngles &angles, idEntity *destination ) {
+	idAI::Teleport(origin, angles, destination);
+	current_yaw		= angles.yaw;
+	ideal_yaw		= idMath::AngleNormalize180( angles.yaw );
+
+	if ( driver ) {
+		driver->SetViewAngles( idAngles( 0, angles.yaw, 0 ) );
+	}
+}
+
+
+/*
+=====================
+idAI::AttackMelee
+
+jointname allows the endpoint to be exactly specified in the model,
+as for the commando tentacle.  If not specified, it will be set to
+the facing direction + melee_range.
+
+kickDir is specified in the monster's coordinate system, and gives the direction
+that the view kick and knockback should go
+=====================
+*/
+bool idAI_Rideable::AttackMelee( const char *meleeDefName ) {
+	const idDict *	meleeDef;
+	const char *	p;
+	const idSoundShader *shader;
+
+	idEntity *		ent;
+	idEntity *		entityList[ MAX_GENTITIES ];
+	int				numListedEntities;
+	idBounds		damageBounds;
+	idVec3			damagePos;
+	idMat3			axis;
+	jointHandle_t	joint;
+	bool			hit = false;
+	trace_t			trace;
+
+	meleeDef = gameLocal.FindEntityDefDict( meleeDefName, false );
+	if ( !meleeDef ) {
+		gameLocal.Error( "Unknown melee '%s'", meleeDefName );
+	}
+
+	idVec3	kickDir;
+	meleeDef->GetVector( "kickDir", "0 0 0", kickDir );
+
+	idVec3	globalKickDir;
+	globalKickDir = ( viewAxis * physicsObj.GetGravityAxis() ) * kickDir;
+
+	const char *jointname = spawnArgs.GetString("melee_joint"); //"RMissile";
+	if ( jointname && *jointname ) {
+		joint = animator.GetJointHandle( jointname );
+		if ( joint == INVALID_JOINT ) {
+			gameLocal.Warning( "Unknown joint '%s' in %s for %s", jointname, meleeDefName, GetEntityDefName() );
+			return false;
+		}
+
+		animator.GetJointTransform( joint, gameLocal.time, damagePos, axis );
+		damagePos = physicsObj.GetOrigin() + ( damagePos + modelOffset ) * viewAxis * physicsObj.GetGravityAxis();
+		damageBounds = idBounds( damagePos ).Expand( melee_range );
+	} else { //bbox like testMelee()
+		//gameLocal.Warning( "Missing melee_joint in %s for %s", meleeDefName, GetEntityDefName() );
+
+		//FIXME: make work with gravity vector
+		// expand the bounds out by our melee range
+		const idBounds &myBounds = physicsObj.GetBounds();
+
+		damageBounds[0][0] = -melee_range;
+		damageBounds[0][1] = -melee_range;
+		damageBounds[0][2] = myBounds[0][2] - 4.0f;
+		damageBounds[1][0] = melee_range;
+		damageBounds[1][1] = melee_range;
+		damageBounds[1][2] = myBounds[1][2] + 4.0f;
+		damageBounds.TranslateSelf( physicsObj.GetOrigin() );
+
+		damagePos = damageBounds.GetCenter();
+	}
+
+	float targetFovDot = (float)cos( DEG2RAD( spawnArgs.GetFloat("melee_angle", "180") * 0.5f ) );
+
+	numListedEntities = gameLocal.clip.EntitiesTouchingBounds( damageBounds, MASK_SHOT_RENDERMODEL, entityList, MAX_GENTITIES );
+	for ( int e = 0; e < numListedEntities; e++ ) {
+		ent = entityList[ e ];
+		assert( ent );
+
+		if ( ent == this || ent == driver || ent->IsHidden() /*|| !ent->IsActive()*/ ) {
+			continue;
+		}
+
+		if ( ent->IsType( idActor::Type ) || ent->IsType( idDamagable::Type ) || ent->IsType( idMoveable::Type ) ) {
+			//gameLocal.Printf("found melee target %s\n", ent->GetName());
+
+			if ( !CheckFOV( ent->GetPhysics()->GetOrigin(), targetFovDot ) ) {
+				//gameRenderWorld->DebugLine( colorRed, physicsObj.GetOrigin(), ent->GetPhysics()->GetOrigin(), 5000 );
+				continue;
+			}
+			//gameRenderWorld->DebugLine( colorGreen, physicsObj.GetOrigin(), ent->GetPhysics()->GetOrigin(), 5000 );
+
+			//damage
+			ent->Damage( this, this, globalKickDir, meleeDefName, meleeDamageScale, INVALID_JOINT );
+			DamageEffect( meleeDefName, ent, damagePos, melee_range );
+
+			if ( !hit ) {
+				hit = true;
+			}
+		}
+	}
+
+	//sound
+	p = meleeDef->GetString( hit ? "snd_hit" : "snd_miss" );
+	if ( p && *p ) {
+		shader = declManager->FindSound( p );
+		StartSoundShader( shader, SND_CHANNEL_DAMAGE, 0, false, NULL );
+	}
+
+	if ( hit ) {
+		lastAttackTime = gameLocal.time;
+	}
+	return hit;
+}
+
+/*
+=====================
+idAI_Rideable::Event_MeleeAttackToJoint
+=====================
+
+void idAI_Rideable::Event_MeleeAttackToJoint( const char *jointname, const char *meleeDefName ) {
+	jointHandle_t	joint;
+	idVec3			start;
+	idVec3			end;
+	idMat3			axis;
+	trace_t			trace;
+	idEntity		*hitEnt;
+
+	idVec3			damageFxDir; //ff1.3
+
+	joint = animator.GetJointHandle( jointname );
+	if ( joint == INVALID_JOINT ) {
+		gameLocal.Error( "Unknown joint '%s' on %s", jointname, GetEntityDefName() );
+	}
+	animator.GetJointTransform( joint, gameLocal.time, end, axis );
+	end = physicsObj.GetOrigin() + ( end + modelOffset ) * viewAxis * physicsObj.GetGravityAxis();
+	start = GetEyePosition();
+
+	if ( ai_debugMove.GetBool() ) {
+		gameRenderWorld->DebugLine( colorYellow, start, end, gameLocal.msec );
+	}
+
+	gameLocal.clip.TranslationEntities( trace, start, end, NULL, mat3_identity, MASK_SHOT_BOUNDINGBOX, this );
+	if ( trace.fraction < 1.0f ) {
+		hitEnt = gameLocal.GetTraceEntity( trace );
+		if ( hitEnt && (hitEnt->IsType( idActor::Type ) || hitEnt->IsType( idAFEntity_Vehicle::Type )) ) {
+			DirectDamage( meleeDefName, hitEnt );
+
+			//damage effect - could work for any entity but just add blood on actors for now
+			if ( hitEnt->IsType( idActor::Type ) ) {
+				//gameRenderWorld->DebugLine( colorYellow, start, end, 5000 );
+				if ( !static_cast<idActor *>(hitEnt)->GetInsideBodyAimTarget(end) ) {
+					end = hitEnt->GetPhysics()->GetAbsBounds().GetCenter();
+				}
+				damageFxDir = end - start;
+				damageFxDir.Normalize();
+				end = start + damageFxDir * (trace.endpos-start).LengthFast() * 1.4f; //don't go much further than the previous trace
+
+				//gameRenderWorld->DebugLine( colorBlue, start, end, 5000 );
+				gameLocal.clip.TracePoint( trace, start, end, MASK_SHOT_RENDERMODEL, this );
+				if ( ( trace.fraction < 1.0f ) && ( gameLocal.GetTraceEntity( trace ) == hitEnt ) ) {
+					//gameLocal.Printf("AddDamageEffect\n");
+					hitEnt->AddDamageEffect( trace, damageFxDir, meleeDefName, this );
+				}
+			}
+
+			idThread::ReturnInt( true );
+			return;
+		}
+	}
+
+	idThread::ReturnInt( false );
+}
+*/
+
+/*
+=================
+idAI_Rideable::TriggerSkippedTriggers
+=================
+*/
+void idAI_Rideable::TriggerSkippedTriggers( const idVec3 &startPos ){
+	const float POSSESSION_MAX_TRACER_STEP_LENGHT = 4000.0f;
+	const int POSSESSION_MAX_HIT_TARGETS = 20;
+	idVec3 tempStartPos, tempEndPos;
+	idVec3 tracerDir;
+	trace_t tr;
+	idEntity* ent;
+	int hitTargetCounter;
+	float idealTracerLenght;
+	idBounds hitbox;
+	int hitEntityNumbers[POSSESSION_MAX_HIT_TARGETS] = {};
+	int i;
+
+	if ( !driver ){
+		return;
+	}
+
+	const idVec3 endPos = physicsObj.GetAbsBounds().GetCenter();
+
+	//gameRenderWorld->DebugLine( colorBlue, startPos, endPos, 10000, true );
+
+	//init loop vars
+	ent = driver;
+	hitTargetCounter = 0;
+
+	//prepare for trace
+	hitbox = idBounds( vec3_origin ).Expand( 10 );
+	tracerDir = (endPos - startPos);
+	tracerDir.Normalize();
+	tempStartPos = startPos + tracerDir * 5.0f;
+
+	while ( hitTargetCounter < POSSESSION_MAX_HIT_TARGETS ) {
+
+		idealTracerLenght = (endPos - tempStartPos).Length();
+
+		if ( idealTracerLenght > POSSESSION_MAX_TRACER_STEP_LENGHT ) {
+			tempEndPos = tempStartPos + tracerDir * POSSESSION_MAX_TRACER_STEP_LENGHT;
+		} else {
+			tempEndPos = endPos;
+		}
+
+		gameLocal.clip.TraceBounds( tr, tempStartPos, tempEndPos, hitbox, CONTENTS_TRIGGER, ent );
+		//gameRenderWorld->DebugBounds( colorOrange, hitbox, tempStartPos, 10000 );
+
+
+		if ( tr.fraction < 1.0f ) {
+			hitTargetCounter++;
+
+			//upd startPos
+			tempStartPos = tr.endpos + tracerDir * 5.0f; //always move a bit forward
+			ent = gameLocal.entities[ tr.c.entityNum ];
+			//gameLocal.Printf("hit entity: %s\n", ent->GetName() );
+			if ( !ent->IsType( idActor::Type ) && !ent->IsType( idExplodingBarrel::Type ) ){ //don't get the master for ExplodingBarrels
+				idEntity* master = gameLocal.entities[ tr.c.entityNum ]->GetBindMaster();
+				if ( master ) {
+					ent = master;
+				}
+			}
+
+			//don't hit the same entity twice
+			for(i = 0; i < hitTargetCounter; i++){
+				if ( ent->entityNumber == hitEntityNumbers[i] ) {
+					break;
+				}
+			}
+			if ( i < hitTargetCounter ) {
+				//gameLocal.Printf("skip already hit entity: %s\n", ent->GetName() );
+				continue;
+			}
+			hitEntityNumbers[hitTargetCounter] = ent->entityNumber;
+
+			if ( (!ent->RespondsTo( EV_Touch ) && !ent->HasSignal( SIG_TOUCH )) || !ent->IsType( idTrigger::Type ) || ent->spawnArgs.GetBool("ignorePossessionProj") ) {
+				//gameLocal.Printf("ignore entity: %s\n", ent->GetName() );
+				continue;
+			}
+
+			/*
+			if ( !GetPhysics()->ClipContents( cm ) ) {
+				continue;
+			}
+			*/
+
+			//gameLocal.Printf("touch entity: %s\n", ent->GetName() );
+#ifdef _D3XP
+			SetTimeState ts( ent->timeGroup );
+#endif
+
+			ent->Signal( SIG_TOUCH );
+			ent->ProcessEvent( &EV_Touch, driver, &tr );
+		} else if ( idealTracerLenght > POSSESSION_MAX_TRACER_STEP_LENGHT ) {
+			tempStartPos = tempEndPos;
+		} else {
+			break; //endPos reached
+		}
+	}
+}
+//ff1.3 end

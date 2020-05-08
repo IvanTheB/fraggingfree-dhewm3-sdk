@@ -79,6 +79,13 @@ class idTypeInfo;
 class idThread;
 class idEditEntities;
 class idLocationEntity;
+class idSound; //ff1.3
+
+//ff1.3 start
+#define	MUSIC_SOUND_CLASS				2 //0 = default, 1 = teleport snd
+#define RIDEABLE_MODE_SPAWNARG			"rideable_mode"
+#define RIDEABLE_TIMEMODE_SPAWNARG		"rideable_timemode"
+//ff1.3 end
 
 //============================================================================
 extern const int NUM_RENDER_PORTAL_BITS;
@@ -121,6 +128,47 @@ typedef struct entityNetEvent_s {
 	struct entityNetEvent_s	*next;
 	struct entityNetEvent_s *prev;
 } entityNetEvent_t;
+
+//ff1.3 start
+
+typedef struct {
+	int					killCount;
+	int					soulsCount;
+	int					multikill;
+	int					skillshot;
+	int					doublekill;
+	int					massacre;
+	int					chainkill;
+	int					secretsFound;
+	int					gameCoversFound;
+	int					damage;
+	int					projFired;		// number of projectiles fired
+	int					projHits;		// number of hits on mobs
+} playerStats_t;
+
+typedef struct {
+	int					time;
+	int					skill;
+	bool				skillChanged;
+	int					numSecrets;
+	int					numGameCovers;
+} mapStats_t;
+
+//map infos stored in def
+typedef struct {
+	idStr				title;			// title of the map, empty string if no map loaded
+	idStr				img;			// image of the map, empty string if no map loaded
+	int					noStats;		// if set map stats are not persisted in player args
+	bool				noDefaultPda;	// if set the default FF pda is not added at map start
+} mapInfo_t;
+
+typedef struct {
+	idStr				title;			// title of the campaign, empty string if no map loaded
+	idStr				img;			// image of the campaign, empty string if no map loaded
+	int					maps;			// number of maps in the campaign, 0 if no map loaded
+} campaignInfo_t;
+
+//ff1.3 end
 
 enum {
 	GAME_RELIABLE_MESSAGE_INIT_DECL_REMAP,
@@ -293,6 +341,7 @@ public:
 	int						cinematicMaxSkipTime;	// time to end cinematic when skipping.  there's a possibility of an infinite loop if the map isn't set up right.
 	bool					inCinematic;			// game is playing cinematic (player controls frozen)
 	bool					skipCinematic;
+	bool					cinematicCheckpoint;	//ff1.3
 
 													// are kept up to date with changes to serverInfo
 	int						framenum;
@@ -327,6 +376,14 @@ public:
 	void					SetPortalSkyEnt( idEntity *ent );
 	bool					IsPortalSkyAcive();
 
+	//ivan start
+	mapStats_t				mapStats;
+	mapInfo_t				mapInfo;
+	campaignInfo_t			campaignInfo;
+
+	idEntityPtr<idActor>	lastAICoopEnemy;	// last enemy for team 0, used by AI for cooperation. TODO: support coop for other teams?
+	//ivan end
+
 	timeState_t				fast;
 	timeState_t				slow;
 
@@ -347,6 +404,22 @@ public:
 	void					QuickSlowmoReset();
 
 	bool					NeedRestart();
+
+	//ff1.3 start
+	bool					IsAutoSaving() { return autoSaving; };
+	bool					IsSlowmoActive();
+	const idDict *			FindCampaignDictForMapDict( const idDict *mapDict );
+	void					LoadMapInfo( const char * mapName, mapInfo_t &mapInfo );
+	void					LoadCampaignInfo( const char * mapName, campaignInfo_t &campaignInfo );
+	void					PersistCampaignStats( playerStats_t &campaignPlayerStats, mapStats_t &campaignMapStats );
+	int						GetTimeStat( void );
+	void					AutoSave( void );
+
+	void					StartActionMusic( idSound *ent, bool autoStop );
+	void					StopActionMusic( void );
+	void					StartAmbientMusic( idSound *ent );
+	void					StopAmbientMusic( void );
+	//ff1.3 end
 #endif
 
 	void					Tokenize( idStrList &out, const char *in );
@@ -395,7 +468,7 @@ public:
 
 	virtual bool			DownloadRequest( const char *IP, const char *guid, const char *paks, char urls[ MAX_STRING_CHARS ] );
 
-	virtual void				GetMapLoadingGUI( char gui[ MAX_STRING_CHARS ] );
+	virtual void			GetMapLoadingGUI( char gui[ MAX_STRING_CHARS ] );
 
 	// ---------------------- Public idGameLocal Interface -------------------
 
@@ -426,7 +499,7 @@ public:
 	void					RemoveAllAASObstacles( void );
 
 	bool					CheatsOk( bool requirePlayer = true );
-	void					SetSkill( int value );
+	void					SetSkill( int value, bool initialValue );
 	gameState_t				GameState( void ) const;
 	idEntity *				SpawnEntityType( const idTypeInfo &classdef, const idDict *args = NULL, bool bIsClientReadSnapshot = false );
 	bool					SpawnEntityDef( const idDict &args, idEntity **ent = NULL, bool setDefaults = true );
@@ -440,8 +513,9 @@ public:
 
 	bool					RequirementMet( idEntity *activator, const idStr &requires, int removeItem );
 
-	void					AlertAI( idEntity *ent );
+	void					AlertAI( idEntity *ent, const idVec3 &pos ); //ff1.3 - pos added
 	idActor *				GetAlertEntity( void );
+	const idVec3 &			GetAlertPos( void ) const; //ff1.3
 
 	bool					InPlayerPVS( idEntity *ent ) const;
 	bool					InPlayerConnectedArea( idEntity *ent ) const;
@@ -468,7 +542,7 @@ public:
 	int						EntitiesWithinRadius( const idVec3 org, float radius, idEntity **entityList, int maxCount ) const;
 
 	void					KillBox( idEntity *ent, bool catch_teleport = false );
-	void					RadiusDamage( const idVec3 &origin, idEntity *inflictor, idEntity *attacker, idEntity *ignoreDamage, idEntity *ignorePush, const char *damageDefName, float dmgPower = 1.0f );
+	void					RadiusDamage( const idVec3 &origin, idEntity *inflictor, idEntity *attacker, idEntity *ignoreDamage, idEntity *ignorePush, const char *damageDefName, float dmgPower = 1.0f, bool addProjectileHit = false );
 	void					RadiusPush( const idVec3 &origin, const float radius, const float push, const idEntity *inflictor, const idEntity *ignore, float inflictorScale, const bool quake );
 	void					RadiusPushClipModel( const idVec3 &origin, const float push, const idClipModel *clipModel );
 
@@ -508,14 +582,27 @@ public:
 	void					SetGibTime( int _time ) { nextGibTime = _time; };
 	int						GetGibTime() { return nextGibTime; };
 
-
-
 private:
 	const static int		INITIAL_SPAWN_COUNT = 1;
 
 	idStr					mapFileName;			// name of the map, empty string if no map loaded
 	idMapFile *				mapFile;				// will be NULL during the game unless in-game editing is used
 	bool					mapCycleLoaded;
+
+	//ff1.1 start
+	//idStr					mapTitle;				// title of the map, empty string if no map loaded
+	//idStr					mapImg;					// image of the map, empty string if no map loaded
+	idHashTable<int>		mapIndexByName;
+	idListGUI				*mapList;				// ff1.1 - extra map list in main menu
+	idEntityPtr<idSound>	ambientMusicEntity;
+	idEntityPtr<idSound>	actionMusicEntity;
+	bool					actionMusicAvailable;
+	bool					actionMusicEnabled;
+	bool					actionMusicAutoStop;
+	int						actionMusicEndTime;
+	int						nextCinematicAutosaveTime;
+	bool					autoSaving;
+	//ff end
 
 	int						spawnCount;
 	int						mapSpawnCount;			// it's handy to know which entities are part of the map
@@ -530,6 +617,7 @@ private:
 
 	idEntityPtr<idActor>	lastAIAlertEntity;
 	int						lastAIAlertTime;
+	idVec3					lastAIAlertPos; //ff1.3
 
 	idDict					spawnArgs;				// spawn args used during entity spawning  FIXME: shouldn't be necessary anymore
 
@@ -612,7 +700,31 @@ private:
 	void					GetShakeSounds( const idDict *dict );
 
 	void					UpdateLagometer( int aheadOfServer, int dupeUsercmds );
+
+	void					UpdSelectedMapInfo( idUserInterface *gui ); //ff1.1
+	void					UpdAspectRatio( void );  //ff1.3
+	void					UpdCustomResFromMode( void );  //ff1.3
+
+	//ff1.3 start
+	void					InitIntroGui( void );
+
+	bool					LocalPlayerHasEnemies( void );
+	void					UpdateMusicVolume( void );
+	void					SetMusicVolumeFromCVar( void );
+	void					StartMusic( idEntityPtr<idSound> &musicEntPtr, idSound *newMusicEnt, bool isActionMusic );
+	void					StopMusic( idEntityPtr<idSound> &musicEntPtr );
+	void					FadeMusic( idEntityPtr<idSound> &musicEntPtr, float volume, float time );
+
+	void					WriteStatsToFile( playerStats_t &playerStats, mapStats_t &mapStats, const char *fileName );
+	void					ReadStatsFromFile( playerStats_t &playerStats, mapStats_t &mapStats, const char *fileName );
+	//ff1.3 end
 };
+
+//ff1.3 start
+ID_INLINE bool idGameLocal::IsSlowmoActive( void ) {
+	return (slowmoState != SLOWMO_STATE_OFF);
+}
+//ff1.3 end
 
 //============================================================================
 

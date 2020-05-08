@@ -57,6 +57,11 @@ CLASS_DECLARATION( idEntity, idItem )
 	EVENT( EV_Activate,			idItem::Event_Trigger )
 	EVENT( EV_RespawnItem,		idItem::Event_Respawn )
 	EVENT( EV_RespawnFx,		idItem::Event_RespawnFx )
+
+	//ff1.3 start - override origin events to fix bobbing items
+	EVENT( EV_SetWorldOrigin,	idItem::Event_SetWorldOrigin )
+	EVENT( EV_SetOrigin,		idItem::Event_SetOrigin )
+	//ff1.3 end
 END_CLASS
 
 
@@ -73,6 +78,9 @@ idItem::idItem() {
 	lastRenderViewTime = -1;
 	itemShellHandle = -1;
 	shellMaterial = NULL;
+#ifdef SHELLSKIN
+	shellSkin = NULL; //ff1.3
+#endif
 	orgOrigin.Zero();
 	canPickUp = true;
 	fl.networkSync = true;
@@ -103,7 +111,9 @@ void idItem::Save( idSaveGame *savefile ) const {
 	savefile->WriteBool( canPickUp );
 
 	savefile->WriteMaterial( shellMaterial );
-
+#ifdef SHELLSKIN
+	savefile->WriteSkin( shellSkin ); //ff1.3
+#endif
 	savefile->WriteBool( inView );
 	savefile->WriteInt( inViewTime );
 	savefile->WriteInt( lastCycle );
@@ -123,7 +133,9 @@ void idItem::Restore( idRestoreGame *savefile ) {
 	savefile->ReadBool( canPickUp );
 
 	savefile->ReadMaterial( shellMaterial );
-
+#ifdef SHELLSKIN
+	savefile->ReadSkin( shellSkin );
+#endif
 	savefile->ReadBool( inView );
 	savefile->ReadInt( inViewTime );
 	savefile->ReadInt( lastCycle );
@@ -144,6 +156,11 @@ bool idItem::UpdateRenderEntity( renderEntity_s *renderEntity, const renderView_
 	}
 
 	lastRenderViewTime = renderView->time;
+
+	//ivan start - glow if near
+	//if we are here, the item is visible on screen
+
+	/* was:
 
 	// check for glow highlighting if near the center of the view
 	idVec3 dir = renderEntity->origin - renderView->vieworg;
@@ -168,6 +185,25 @@ bool idItem::UpdateRenderEntity( renderEntity_s *renderEntity, const renderView_
 			lastCycle = ceil( cycle );
 		}
 	}
+	*/
+	if ( fl.hidden ) {
+		renderEntity->shaderParms[4] = 0.0f; //hide shell
+		inView = false; //start from beginning next time
+		return false; //stop updating
+	}
+
+	// two second pulse cycle
+	float cycle = ( renderView->time - inViewTime ) / 2000.0f;
+
+	if ( !inView ) { //if not done yet...start now!
+		inView = true;
+		if ( cycle > lastCycle ) {
+			// restart at the beginning
+			inViewTime = renderView->time;
+			cycle = 0.0f;
+		}
+	}
+	//ivan end
 
 	// fade down after the last pulse finishes
 	if ( !inView && cycle > lastCycle ) {
@@ -224,18 +260,38 @@ void idItem::Think( void ) {
 			idVec3		org;
 
 			ang.pitch = ang.roll = 0.0f;
-			ang.yaw = ( gameLocal.time & 4095 ) * 360.0f / -4096.0f;
+			//was: ang.yaw = ( gameLocal.time & 4095 ) * 360.0f / -4096.0f;
+			ang.yaw = ( gameLocal.time & 8191 ) * 360.0f / -8192.0f;
 			SetAngles( ang );
 
+			//ff1.3 start
+			/*
+			//was:
 			float scale = 0.005f + entityNumber * 0.00001f;
 
 			org = orgOrigin;
 			org.z += 4.0f + cos( ( gameLocal.time + 2000 ) * scale ) * 4.0f;
 			SetOrigin( org );
+			*/
+
+			org = orgOrigin;
+			org.z += 16.0f + cos( ( gameLocal.time + 2000 ) * 0.002f ) * 5.0f;
+			SetOrigin( org );
+
+			if ( thinkFlags & TH_PHYSICS ) { //physics may be enabled by bound entities
+				//gameLocal.Printf("TH_PHYSICS %s\n", GetName());
+				RunPhysics(); //required to update bound entities
+			}
+			//ff1.3 end
 		}
 	}
 
 	Present();
+
+#ifdef _DENTONMOD
+	if ( thinkFlags & TH_UPDATEWOUNDPARTICLES )
+		UpdateParticles();
+#endif
 }
 
 /*
@@ -256,7 +312,19 @@ void idItem::Present( void ) {
 		// to give the "item pulse" effect
 		shell.callback = idItem::ModelCallback;
 		shell.entityNum = entityNumber;
+		
+		//ff1.3 start
+#ifdef SHELLSKIN
+		if ( shellSkin ) {
+			shell.customSkin = shellSkin;
+		} else {
+			shell.customShader = shellMaterial;
+		}
+#else
 		shell.customShader = shellMaterial;
+#endif
+		//ff1.3 end
+
 		if ( itemShellHandle == -1 ) {
 			itemShellHandle = gameRenderWorld->AddEntityDef( &shell );
 		} else {
@@ -303,20 +371,28 @@ void idItem::Spawn( void ) {
 
 #ifdef CTF
 	// idItemTeam does not rotate and bob
-	if ( spawnArgs.GetBool( "spin" ) || (gameLocal.isMultiplayer && !this->IsType( idItemTeam::Type ) ) ) {
+	if ( spawnArgs.GetBool( "spin", "1" /*ff1.3 - spin by default */ ) || (gameLocal.isMultiplayer && !this->IsType( idItemTeam::Type ) ) ) {
 		spin = true;
 		BecomeActive( TH_THINK );
 	}
 #else
-	if ( spawnArgs.GetBool( "spin" ) || gameLocal.isMultiplayer ) {
+	if ( spawnArgs.GetBool( "spin", "1" /*ff1.3 - spin by default */  ) || gameLocal.isMultiplayer ) {
 		spin = true;
 		BecomeActive( TH_THINK );
 	}
 #endif
 
-	//pulse = !spawnArgs.GetBool( "nopulse" );
+	//ff1.3 start
+	pulse = spawnArgs.GetBool( "pulse", "1" /* pulse by default */ );
+	
+	/*
+	was:
+	//pulse = !spawnArgs.GetBool( "nopulse","" );
 	//temp hack for tim
 	pulse = false;
+	*/
+	//ff1.3 end
+
 	orgOrigin = GetPhysics()->GetOrigin();
 
 	canPickUp = !( spawnArgs.GetBool( "triggerFirst" ) || spawnArgs.GetBool( "no_touch" ) );
@@ -324,8 +400,29 @@ void idItem::Spawn( void ) {
 	inViewTime = -1000;
 	lastCycle = -1;
 	itemShellHandle = -1;
-	shellMaterial = declManager->FindMaterial( "itemHighlightShell" );
+	//ff1.3 start
+	//was: shellMaterial = declManager->FindMaterial( "itemHighlightShell" );
+	shellMaterial = declManager->FindMaterial( spawnArgs.GetString( "mtr_pulse", "itemHighlightShell" ) );
+#ifdef SHELLSKIN
+	const char *shellSkinName;
+	if ( spawnArgs.GetString( "skin_pulse", NULL, &shellSkinName ) ) {
+		shellSkin = declManager->FindSkin( shellSkinName );
+	}
+#endif
+
+	cinematic = spawnArgs.GetBool( "cinematic", "1" ); //items have different default so they keep bobbing
+	//ff1.3 end
 }
+
+/*
+================
+idItem::PostBind
+================
+*/
+void idItem::PostBind( void ) {
+	orgOrigin = GetLocalCoordinates( orgOrigin );
+}
+
 
 /*
 ================
@@ -382,6 +479,45 @@ bool idItem::Pickup( idPlayer *player ) {
 	// trigger our targets
 	ActivateTargets( player );
 
+	//ff1.1 start
+	if ( spawnArgs.GetBool( "enable_jetpack" ) ) { 
+
+		//search the script function 
+		const function_t *func;
+		func = player->scriptObject.GetFunction( "start_check_jet" );
+		if ( func ) {
+			// create a thread and call the function
+			idThread *thread;
+			thread = new idThread();
+			thread->CallFunction( player, func, false );
+			thread->Start(); 
+		}
+	} else if ( spawnArgs.GetBool( "disable_jetpack" ) ) { 
+
+		//search the script function
+		const function_t *func;
+		func = player->scriptObject.GetFunction( "stop_check_jet" );
+		if ( func ) {
+			// create a thread and call the function
+			idThread *thread;
+			thread = new idThread();
+			thread->CallFunction( player, func, false );
+			thread->Start(); 
+		}
+	} else {
+		idThread *thread;
+		idStr funcname = spawnArgs.GetString( "call", "" );
+		if ( funcname.Length() ) {
+			const function_t * scriptFunction = gameLocal.program.FindFunction( funcname );
+			if ( scriptFunction ) {
+				scriptFunction = gameLocal.program.FindFunction( funcname );
+				thread = new idThread( scriptFunction );
+				thread->DelayedStart( 0 );
+			}
+		}
+	}
+	//ff1.1 end
+
 	// clear our contents so the object isn't picked up twice
 	GetPhysics()->SetContents( 0 );
 
@@ -419,6 +555,56 @@ bool idItem::Pickup( idPlayer *player ) {
 	BecomeInactive( TH_THINK );
 	return true;
 }
+
+//ff1.3 start
+/*
+================
+idItem::Hide
+================
+*/
+void idItem::Hide( void ) {
+	idEntity *ent;
+	idEntity *next;
+
+	if ( !IsHidden() ) {
+		idEntity::Hide();
+
+		for( ent = GetNextTeamEntity(); ent != NULL; ent = next ) {
+			next = ent->GetNextTeamEntity();
+			if ( ent->GetBindMaster() == this ) {
+				ent->Hide();
+				if ( ent->IsType( idLight::Type ) ) {
+					static_cast<idLight *>( ent )->Off();
+				}
+			}
+		}
+	}
+}
+
+/*
+================
+idItem::Hide
+================
+*/
+void idItem::Show( void ) {
+	idEntity *ent;
+	idEntity *next;
+
+	if ( IsHidden() ) {
+		idEntity::Show();
+
+		for( ent = GetNextTeamEntity(); ent != NULL; ent = next ) {
+			next = ent->GetNextTeamEntity();
+			if ( ent->GetBindMaster() == this ) {
+				ent->Show();
+				if ( ent->IsType( idLight::Type ) ) {
+					static_cast<idLight *>( ent )->On();
+				}
+			}
+		}
+	}
+}
+//ff1.3 end
 
 /*
 ================
@@ -516,15 +702,13 @@ idItem::Event_Touch
 ================
 */
 void idItem::Event_Touch( idEntity *other, trace_t *trace ) {
-	if ( !other->IsType( idPlayer::Type ) ) {
-		return;
-	}
-
 	if ( !canPickUp ) {
 		return;
 	}
 
-	Pickup( static_cast<idPlayer *>(other) );
+	if ( other->IsType( idPlayer::Type ) ) {
+		Pickup( static_cast<idPlayer *>(other) );
+	}
 }
 
 /*
@@ -533,6 +717,11 @@ idItem::Event_Trigger
 ================
 */
 void idItem::Event_Trigger( idEntity *activator ) {
+	//ff1.3 start
+	if ( spawnArgs.GetBool( "showOnTrigger" ) ) {
+		Show();
+	}
+	//ff1.3 end
 
 	if ( !canPickUp && spawnArgs.GetBool( "triggerFirst" ) ) {
 		canPickUp = true;
@@ -577,6 +766,73 @@ void idItem::Event_RespawnFx( void ) {
 		idEntityFx::StartFx( sfx, NULL, NULL, this, true );
 	}
 }
+
+//ff1.3 start
+
+/*
+================
+idEntity::Event_SetWorldOrigin
+================
+*/
+void idItem::Event_SetWorldOrigin( idVec3 const &org ) {
+	idVec3 neworg = GetLocalCoordinates( org );
+	SetOrigin( neworg );
+	if ( spin ) {
+		orgOrigin = neworg;
+	}
+}
+
+/*
+================
+idEntity::Event_SetOrigin
+================
+*/
+void idItem::Event_SetOrigin( idVec3 const &org ) {
+	SetOrigin( org );
+	if ( spin ) {
+		orgOrigin = org;
+	}
+}
+
+/*
+===============================================================================
+
+  idItemSoul
+
+===============================================================================
+*/
+
+/*
+===============
+idItemSoul
+===============
+*/
+
+CLASS_DECLARATION( idItem, idItemSoul )
+	EVENT( EV_Touch,			idItemSoul::Event_Touch )
+END_CLASS
+
+/*
+================
+idItemSoul::Event_Touch
+================
+*/
+void idItemSoul::Event_Touch( idEntity *other, trace_t *trace ) {
+	if ( !canPickUp ) {
+		return;
+	}
+
+	if ( other->IsType( idPlayer::Type ) ) {
+		Pickup( static_cast<idPlayer *>(other) );
+	}else if ( other->IsType( idAI_Rideable::Type ) && other->spawnArgs.GetBool("pickup_souls", "1") ) {
+		idPlayer * driver = static_cast<idAI_Rideable *>(other)->GetDriver();
+		if ( driver ) {
+			Pickup( driver );
+		}
+	}
+}
+
+//ff1.3 end
 
 /*
 ===============================================================================
@@ -1520,7 +1776,7 @@ void idObjective::Event_GetPlayerPos() {
 	idPlayer *player = gameLocal.GetLocalPlayer();
 	if ( player ) {
 		playerPos = player->GetPhysics()->GetOrigin();
-		PostEventMS( &EV_HideObjective, 100, player );
+		PostEventMS( &EV_HideObjective, spawnArgs.GetInt( "extra_time", "100" ), player ); //ff1.3
 	}
 }
 
@@ -1779,6 +2035,11 @@ void idMoveableItem::Think( void ) {
 	}
 
 	Present();
+
+#ifdef _DENTONMOD
+	if ( thinkFlags & TH_UPDATEWOUNDPARTICLES )
+		UpdateParticles();
+#endif
 }
 
 #ifdef _D3XP

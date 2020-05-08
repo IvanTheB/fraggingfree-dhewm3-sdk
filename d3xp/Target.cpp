@@ -196,8 +196,14 @@ idTarget_EndLevel::Event_Activate
 void idTarget_EndLevel::Event_Activate( idEntity *activator ) {
 	idStr nextMap;
 
+    //ff1.3 start
+    if ( !gameLocal.mapStats.time ) { //time was not "committed" if the "completed" gui was not shown
+        gameLocal.mapStats.time = gameLocal.GetTimeStat();
+    }
+    //ff1.3 end
+
 	if ( spawnArgs.GetBool( "endOfGame" ) ) {
-		cvarSystem->SetCVarBool( "g_nightmare", true );
+		//cvarSystem->SetCVarBool( "g_nightmare", true ); //ff1.3 - now set by map scripts
 		gameLocal.sessionCommand = "disconnect";
 		return;
 	}
@@ -1329,7 +1335,6 @@ idTarget_SetFov::Save
 ================
 */
 void idTarget_SetFov::Save( idSaveGame *savefile ) const {
-
 	savefile->WriteFloat( fovSetting.GetStartTime() );
 	savefile->WriteFloat( fovSetting.GetDuration() );
 	savefile->WriteFloat( fovSetting.GetStartValue() );
@@ -1597,10 +1602,14 @@ idTarget_Tip::Event_Activate
 */
 void idTarget_Tip::Event_GetPlayerPos( void ) {
 	idPlayer *player = gameLocal.GetLocalPlayer();
-	if ( player ) {
+	//ivan start
+	//was: if ( player ) {
+	if ( player && player->IsTipVisible() ) {
+	//ivan end
 		playerPos = player->GetPhysics()->GetOrigin();
-		PostEventMS( &EV_TipOff, 100 );
+		PostEventMS( &EV_TipOff, 1100 ); //ff1.3 - was: 100, but now GetPlayerPos happens 1000 earlier
 	}
+	//else job already done!
 }
 
 /*
@@ -1616,7 +1625,7 @@ void idTarget_Tip::Event_Activate( idEntity *activator ) {
 			return;
 		}
 		player->ShowTip( spawnArgs.GetString( "text_title" ), spawnArgs.GetString( "text_tip" ), false );
-		PostEventMS( &EV_GetPlayerPos, 2000 );
+		PostEventMS( &EV_GetPlayerPos, 1000 ); //ivan - was 2000, but in FF we wun so fast it could be near enemies
 	}
 }
 
@@ -1627,14 +1636,18 @@ idTarget_Tip::Event_TipOff
 */
 void idTarget_Tip::Event_TipOff( void ) {
 	idPlayer *player = gameLocal.GetLocalPlayer();
-	if ( player ) {
+	//ivan start
+	//was: if ( player ) {
+	if ( player && player->IsTipVisible() ) {
+	//ivan end
 		idVec3 v = player->GetPhysics()->GetOrigin() - playerPos;
-		if ( v.Length() > 96.0f ) {
+		if ( v.Length() > 300.0f ) { //ivan - was 96.0f
 			player->HideTip();
 		} else {
 			PostEventMS( &EV_TipOff, 100 );
 		}
 	}
+	//else job already done!
 }
 
 
@@ -1689,7 +1702,9 @@ void idTarget_RemoveWeapons::Event_Activate( idEntity *activator ) {
 				player->RemoveWeapon( kv->GetValue() );
 				kv = spawnArgs.MatchPrefix( "weapon", kv );
 			}
-			player->SelectWeapon( player->weapon_fists, true );
+			player->NextBestWeapon(); //ff1.3 - was: SelectWeapon( player->weapon_fists, true );
+			player->UpdateHudWeapon(); //ff1.3 - update weapon stats
+			player->UpdateEveryAmmoOnHud(); //ff1.3 - update ammo stats
 		}
 	}
 }
@@ -1740,6 +1755,8 @@ idTarget_EnableStamina::Event_Activate
 ================
 */
 void idTarget_EnableStamina::Event_Activate( idEntity *activator ) {
+	//ff1.3 start - completely disable this target as vanilla d3 stamina doesn't exist anymore
+	/*
 	for( int i = 0; i < gameLocal.numClients; i++ ) {
 		if ( gameLocal.entities[ i ] ) {
 			idPlayer *player = static_cast< idPlayer* >( gameLocal.entities[i] );
@@ -1750,6 +1767,8 @@ void idTarget_EnableStamina::Event_Activate( idEntity *activator ) {
 			}
 		}
 	}
+	*/
+	//ff1.3 end
 }
 
 /*
@@ -1796,3 +1815,120 @@ void idTarget_FadeSoundClass::Event_RestoreVolume() {
 	// restore volume
 	gameSoundWorld->FadeSoundClasses( 0, fadeDB, fadeTime );
 }
+
+//ff1.3 start
+/*
+===============================================================================
+
+idTarget_Secret
+
+===============================================================================
+*/
+
+CLASS_DECLARATION( idTarget, idTarget_Secret )
+	EVENT( EV_Activate, idTarget_Secret::Event_Activate )
+END_CLASS
+
+/*
+================
+idTarget_Secret::idTarget_Secret
+================
+*/
+idTarget_Secret::idTarget_Secret( void ) {
+	found = false;
+}
+
+/*
+================
+idTarget_Secret::Spawn
+================
+*/
+void idTarget_Secret::Spawn( void ) {
+	gameLocal.mapStats.numSecrets++;
+	//gameLocal.Printf("numSecrets %d\n", gameLocal.mapStats.numSecrets);
+}
+
+/*
+================
+idTarget_Secret::Save
+================
+*/
+void idTarget_Secret::Save( idSaveGame *savefile ) const {
+	savefile->WriteBool( found );
+}
+
+/*
+================
+idTarget_Secret::Restore
+================
+*/
+void idTarget_Secret::Restore( idRestoreGame *savefile ) {
+	savefile->ReadBool( found );
+}
+
+
+/*
+================
+idTarget_Secret::Event_Activate
+================
+*/
+void idTarget_Secret::Event_Activate( idEntity *activator ) {
+	if ( found ) {
+		return;
+	}
+	found = true;
+
+	idPlayer *player = gameLocal.GetLocalPlayer();
+	if ( player ) {
+		player->SecretFound();
+	}
+}
+
+/*
+===============================================================================
+
+idTarget_Stats
+
+===============================================================================
+*/
+
+CLASS_DECLARATION( idTarget, idTarget_Stats )
+	EVENT( EV_Activate, idTarget_Stats::Event_Activate )
+END_CLASS
+
+/*
+================
+idTarget_Stats::Event_Activate
+================
+*/
+void idTarget_Stats::Event_Activate( idEntity *activator ) {
+	idPlayer *player = gameLocal.GetLocalPlayer();
+	if ( player ) {
+		player->CancelEvents( &EV_Player_HideStats );
+		player->PostEventMS( &EV_Player_ShowStats, 0, gameLocal.GetMapName(), 1 );
+		player->PostEventMS( &EV_Player_HideStats, spawnArgs.GetInt( "time", "5000" ) );
+	}
+}
+
+/*
+===============================================================================
+
+idTarget_Autosave
+
+===============================================================================
+*/
+
+CLASS_DECLARATION( idTarget, idTarget_Autosave )
+	EVENT( EV_Activate, idTarget_Autosave::Event_Activate )
+END_CLASS
+
+/*
+================
+idTarget_Autosave::Event_Activate
+================
+*/
+void idTarget_Autosave::Event_Activate( idEntity *activator ) {
+	gameLocal.AutoSave();
+}
+
+//ff1.3 end

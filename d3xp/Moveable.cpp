@@ -335,11 +335,12 @@ bool idMoveable::Collide( const trace_t &collision, const idVec3 &velocity ) {
 					else {
 						ent->Damage( this, GetPhysics()->GetClipModel()->GetOwner(), dir, damage, f, INVALID_JOINT );
 					}
+					
+
 #else
 					ent->Damage( this, GetPhysics()->GetClipModel()->GetOwner(), dir, damage, f, INVALID_JOINT );
 #endif
 				}
-
 				nextDamageTime = gameLocal.time + 1000;
 			}
 		}
@@ -761,6 +762,11 @@ void idBarrel::Think( void ) {
 	}
 
 	BarrelThink();
+
+#ifdef _DENTONMOD
+	if ( thinkFlags & TH_UPDATEWOUNDPARTICLES )
+		UpdateParticles();
+#endif
 }
 
 /*
@@ -949,6 +955,11 @@ idExplodingBarrel::Think
 */
 void idExplodingBarrel::Think( void ) {
 	idBarrel::BarrelThink();
+
+	#ifdef _DENTONMOD
+		if ( thinkFlags & TH_UPDATEWOUNDPARTICLES )
+			UpdateParticles();
+	#endif
 
 	if ( lightDefHandle >= 0 ){
 		if ( state == BURNING ) {
@@ -1356,3 +1367,267 @@ bool idExplodingBarrel::ClientReceiveEvent( int event, int time, const idBitMsg 
 
 	return idBarrel::ClientReceiveEvent( event, time, msg );
 }
+
+
+//ff1.3 start
+#define SPHERE_COLOR_TR					900
+#define SPHERE_MAX_VELOCITY_Z			1500
+#define SPHERE_MIN_VELOCITY_Z			300
+#define SPHERE_EXTRA_VELOCITY_Z			100
+#define SPHERE_MULT_VELOCITY_Z			3
+#define SPHERE_MULT_VELOCITY_XY			3.3
+
+CLASS_DECLARATION( idMoveable, idEnergySphere )
+EVENT( EV_PostSpawn,		idEnergySphere::Event_PostSpawn )
+END_CLASS
+
+/*
+================
+idEnergySphere::idEnergySphere
+================
+*/
+idEnergySphere::idEnergySphere() {
+	nextKickTime		= 0;
+	damageSmoke			= NULL;
+	light				= NULL;
+}
+
+/*
+================
+idEnergySphere::Spawn
+================
+*/
+void idEnergySphere::Spawn( void ) {
+	const char *damageSmokeName = spawnArgs.GetString( "smoke_damage", "muzzlesmoke" );
+	if ( *damageSmokeName != '\0' ) {
+		damageSmoke = static_cast<const idDeclParticle *>( declManager->FindType( DECL_PARTICLE, damageSmokeName ) );
+	}
+	PostEventMS( &EV_PostSpawn, 0 );
+}
+
+/*
+================
+idEnergySphere::Spawn
+================
+*/
+void idEnergySphere::Event_PostSpawn( void ) {
+	const char	*lightName;
+	if ( spawnArgs.GetString( "visible_ball", NULL, &lightName) ) {
+		idEntity *ent = gameLocal.FindEntity( lightName );
+		if ( ent && ent->IsType( idLight::Type ) ) {
+			light = static_cast<idLight *>(ent);
+		}
+	}
+}
+
+/*
+================
+idEnergySphere::Save
+================
+*/
+void idEnergySphere::Save( idSaveGame *savefile ) const {
+	savefile->WriteInt( nextKickTime );
+	savefile->WriteParticle( damageSmoke );
+	light.Save( savefile );
+}
+
+/*
+================
+idEnergySphere::Restore
+================
+*/
+void idEnergySphere::Restore( idRestoreGame *savefile ) {
+	savefile->ReadInt( nextKickTime );
+	savefile->ReadParticle( damageSmoke );
+	light.Restore( savefile );
+}
+
+/*
+================
+idEnergySphere::UpdateColor
+================
+*/
+void idEnergySphere::UpdateColor( void ) {
+	idLight * lightEntity = light.GetEntity();
+	if ( lightEntity ) {
+		float speed = GetPhysics()->GetLinearVelocity().Length();
+		if ( speed > SPHERE_COLOR_TR ) {
+			speed = SPHERE_COLOR_TR;
+		}
+		float green = ( 1 - speed/SPHERE_COLOR_TR ) / 2;
+		float blue = ( 2 * speed ) / SPHERE_COLOR_TR;
+		lightEntity->SetColor( 0, green, blue );
+	}
+}
+
+/*
+================
+idEnergySphere::StartGrabbed
+================
+*/
+void idEnergySphere::StartGrabbed( void ) {
+	nextKickTime = -1;
+}
+
+/*
+================
+idEnergySphere::StopGrabbed
+================
+*/
+void idEnergySphere::StopGrabbed( void ) {
+	nextKickTime = gameLocal.slow.time + 500; //called by fast entities
+}
+
+/*
+================
+idEnergySphere::Kick
+================
+*/
+void idEnergySphere::Kick( idPlayer* player ) {
+	idVec3 velocity = player->GetPhysics()->GetLinearVelocity();
+	idVec3 dir = player->viewAngles.ToForward();
+	if ( dir.z > 0 ) { //extra vertical power
+		velocity.z = velocity.z * SPHERE_MULT_VELOCITY_Z + SPHERE_EXTRA_VELOCITY_Z * idMath::Sqrt( dir.z * 144 );  //Sqrt from 1 to 12
+	}
+
+	float speed = velocity.Length();
+	velocity.x = dir.x * speed * SPHERE_MULT_VELOCITY_XY;
+	velocity.y = dir.y * speed * SPHERE_MULT_VELOCITY_XY;
+	velocity.z = idMath::ClampFloat( SPHERE_MIN_VELOCITY_Z, SPHERE_MAX_VELOCITY_Z, velocity.z );
+
+	GetPhysics()->SetLinearVelocity( velocity );
+
+	EnableDamage( true, 2.5f );
+	SetAttacker( player );
+	nextKickTime = gameLocal.time + 500;
+}
+
+/*
+================
+idEnergySphere::Think
+================
+*/
+void idEnergySphere::Think( void ) {
+	//gameLocal.Printf("idEnergySphere::Think");
+	if ( nextKickTime >= 0 && gameLocal.time > nextKickTime ) {
+		idPlayer* player = gameLocal.GetLocalPlayer();
+		if ( player ) {
+			const idBounds &myBounds = GetPhysics()->GetAbsBounds();
+			const idBounds &entBounds = player->GetPhysics()->GetAbsBounds();
+
+			if ( myBounds.IntersectsBounds( entBounds ) ) {
+				Kick( player );
+			}
+		}
+	}
+
+	UpdateColor();
+	idMoveable::Think();
+}
+
+/*
+=================
+idEnergySphere::Collide
+=================
+*/
+bool idEnergySphere::Collide( const trace_t &collision, const idVec3 &velocity ) {
+	float v, f;
+	idVec3 dir;
+	idEntity *ent;
+
+	v = -( velocity * collision.c.normal );
+
+	// _D3XP :: changes relating to the addition of monsterDamage
+	if ( !gameLocal.isClient && canDamage && gameLocal.time > nextDamageTime ) {
+		bool hasDamage = damage.Length() > 0;
+		bool hasMonsterDamage = monsterDamage.Length() > 0;
+
+		if ( hasDamage || hasMonsterDamage ) {
+			ent = gameLocal.entities[ collision.c.entityNum ];
+
+			if ( ent && v > minDamageVelocity ) {
+				f = idMath::Sqrt( v / 1000.0f);
+				if (f < 0.1f) {
+					f = 0.1f; //min
+				} else if (f > 1.0f) {
+					f = 1.0f; //max
+				}
+
+				dir = velocity;
+				dir.NormalizeFast();
+				if ( hasMonsterDamage && ent->IsType( idAI::Type ) ) {
+#ifdef _D3XP
+					if ( attacker ) {
+						ent->Damage( this, attacker, dir, monsterDamage, f, INVALID_JOINT );
+					}
+					else {
+						ent->Damage( this, GetPhysics()->GetClipModel()->GetOwner(), dir, monsterDamage, f, INVALID_JOINT );
+					}
+#else
+					ent->Damage( this, GetPhysics()->GetClipModel()->GetOwner(), dir, monsterDamage, f, INVALID_JOINT );
+#endif
+				} else if ( hasDamage ) {
+#ifdef _D3XP
+					// in multiplayer, scale damage wrt mass of object
+					if ( gameLocal.isMultiplayer ) {
+						f *= GetPhysics()->GetMass() * g_moveableDamageScale.GetFloat();
+					}
+
+					if ( attacker ) {
+						ent->Damage( this, attacker, dir, damage, f, INVALID_JOINT );
+					}
+					else {
+						ent->Damage( this, GetPhysics()->GetClipModel()->GetOwner(), dir, damage, f, INVALID_JOINT );
+					}
+
+
+#else
+					ent->Damage( this, GetPhysics()->GetClipModel()->GetOwner(), dir, damage, f, INVALID_JOINT );
+#endif
+				}
+
+				if ( ent->IsType( idAI::Type )){
+					nextDamageTime = gameLocal.time + 1000;
+				} else {
+					nextDamageTime = gameLocal.time + 10; //ready to hit AI
+				}
+
+				gameLocal.smokeParticles->EmitSmoke( damageSmoke, gameLocal.time, gameLocal.random.RandomFloat(), GetPhysics()->GetOrigin(), collision.c.normal.ToMat3(), timeGroup /* D3XP */ );
+				if ( StartSound( "snd_damage", SND_CHANNEL_ANY, 0, false, NULL ) ) {
+					nextSoundTime = gameLocal.time + 500;
+				}
+			}
+		}
+	}
+
+	if ( v > BOUNCE_SOUND_MIN_VELOCITY && gameLocal.time > nextSoundTime ) {
+		f = v > BOUNCE_SOUND_MAX_VELOCITY ? 1.0f : idMath::Sqrt( v - BOUNCE_SOUND_MIN_VELOCITY ) * ( 1.0f / idMath::Sqrt( BOUNCE_SOUND_MAX_VELOCITY - BOUNCE_SOUND_MIN_VELOCITY ) );
+		if ( StartSound( "snd_bounce", SND_CHANNEL_ANY, 0, false, NULL ) ) {
+			// don't set the volume unless there is a bounce sound as it overrides the entire channel
+			// which causes footsteps on ai's to not honor their shader parms
+			SetSoundVolume( f );
+		}
+		nextSoundTime = gameLocal.time + 500;
+	}
+
+/*
+#ifdef _D3XP
+	if ( this->IsType( idExplodingBarrel::Type ) ) {
+		idExplodingBarrel *ebarrel = static_cast<idExplodingBarrel*>(this);
+
+		if ( !ebarrel->IsStable() ) {
+			PostEventSec( &EV_Explode, 0.04f );
+		}
+	}
+#endif
+
+
+	if ( fxCollide.Length() && gameLocal.time > nextCollideFxTime ) {
+		idEntityFx::StartFx( fxCollide, &collision.c.point, NULL, this, false );
+		nextCollideFxTime = gameLocal.time + 3500;
+	}
+*/
+
+	return false;
+}
+//ff1.3 end
