@@ -30,6 +30,10 @@ If you have questions concerning this license or the applicable additional terms
 #include "framework/DeclEntityDef.h"
 #include "framework/DeclSkin.h"
 
+#ifdef _DENTONMOD
+#include "renderer/ModelManager.h"
+#endif
+
 #include "gamesys/SysCvar.h"
 #include "ai/AI.h"
 #include "Player.h"

@@ -35,6 +35,8 @@ If you have questions concerning this license or the applicable additional terms
 #include "Player.h"
 #include "Fx.h"
 #include "SmokeParticles.h"
+#include "WorldSpawn.h"
+#include "Moveable.h"
 
 #include "AFEntity.h"
 

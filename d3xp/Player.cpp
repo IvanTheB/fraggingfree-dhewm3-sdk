@@ -9007,7 +9007,6 @@ void idPlayer::EnterAI( idAI_Rideable* aiEnt ){
 
 	//clear player enemies
 	idActor *ent;
-	int num = 0;
 	for( ent = enemyList.Next(); ent != NULL; ent = ent->enemyNode.Next() ) {
 		if ( ent->IsType( idAI::Type ) ) {
 			static_cast<idAI*>(ent)->PostEventMS( &AI_ClearEnemy, 0 );

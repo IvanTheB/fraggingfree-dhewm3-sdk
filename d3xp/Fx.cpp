@@ -27,6 +27,7 @@ If you have questions concerning this license or the applicable additional terms
 */
 
 #include "sys/platform.h"
+#include "framework/DeclEntityDef.h"
 #include "renderer/ModelManager.h"
 
 #include "gamesys/SysCvar.h"
@@ -35,6 +36,7 @@ If you have questions concerning this license or the applicable additional terms
 #include "WorldSpawn.h"
 
 #include "Fx.h"
+#include "SmokeParticles.h"
 
 /*
 ===============================================================================
@@ -1145,7 +1147,7 @@ idTeleporter::Event_DoAction
 ================
 */
 void idTeleporter::Event_DoAction( idEntity *activator ) {
-	float angle;
+	//float angle;
 	//idPlayer * player;
 	idAngles ang; //ff1.3 - was: idAngles a( 0, spawnArgs.GetFloat( "angle" ), 0 );
 

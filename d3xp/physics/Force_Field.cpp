@@ -29,7 +29,9 @@ If you have questions concerning this license or the applicable additional terms
 #include "sys/platform.h"
 #include "physics/Physics_Player.h"
 #include "physics/Physics_Monster.h"
+#include "physics/Physics_Parametric.h"
 #include "WorldSpawn.h"
+#include "Projectile.h"
 
 #include "physics/Force_Field.h"
 

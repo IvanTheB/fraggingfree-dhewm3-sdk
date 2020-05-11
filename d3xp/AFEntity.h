@@ -33,6 +33,7 @@ If you have questions concerning this license or the applicable additional terms
 #include "physics/Force_Constant.h"
 #include "Entity.h"
 #include "AF.h"
+#include "Fx.h"
 
 /*
 ===============================================================================
@@ -219,10 +220,6 @@ idAFEntity_Gibbable
 
 ===============================================================================
 */
-
-//ivan start
-class idDamagingFx; 
-//ivan end
 
 extern const idEventDef		EV_Gib;
 extern const idEventDef		EV_Gibbed;

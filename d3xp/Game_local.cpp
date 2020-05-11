@@ -46,6 +46,7 @@ If you have questions concerning this license or the applicable additional terms
 #include "WorldSpawn.h"
 #include "Misc.h"
 #include "Trigger.h"
+#include "Sound.h"
 
 #include "Game_local.h"
 
@@ -4634,6 +4635,15 @@ void idGameLocal::ProjectDecal( const idVec3 &origin, const idVec3 &dir, float d
 	};
 
 	if ( !g_decals.GetBool() ) {
+		return;
+	}
+
+	// DG: with size 0 we get trouble in functions called from this,
+	//     and it's harder to figure out the cause there
+	//     so just catch this here (so please fix the caller to make sure it doesn't happen)
+	assert(size > 0.0f);
+
+	if ( !g_decals.GetBool() || size <= 0.0f ) {
 		return;
 	}
 

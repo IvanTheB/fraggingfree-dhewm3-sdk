@@ -27,6 +27,7 @@ If you have questions concerning this license or the applicable additional terms
 */
 
 #include "sys/platform.h"
+#include "framework/DeclEntityDef.h"
 #include "renderer/ModelManager.h"
 
 #include "gamesys/SysCvar.h"
@@ -36,6 +37,9 @@ If you have questions concerning this license or the applicable additional terms
 #include "Mover.h"
 #include "SmokeParticles.h"
 #include "Misc.h"
+#include "Camera.h"
+#include "BrittleFracture.h"
+#include "Moveable.h"
 
 #include "Projectile.h"
 
@@ -905,7 +909,9 @@ void idProjectile::DefaultDamageEffect( idEntity *soundEnt, const idDict &projec
 		if ( !projectileDef.GetFloat( va( "size_wound_%s", typeName ), "6.0", size ) ) { // If Material Specific decal size not found, look for default size
 			size = projectileDef.GetFloat( "size_wound", "6.0" );
 		}
-		gameLocal.ProjectDecal( collision.c.point, -collision.c.normal, 16.0f, true, size, decal ); //ff1.3 - increased distance from 8.0f so flamegrenades project decals
+		if ( size > 0.0f ) {
+			gameLocal.ProjectDecal( collision.c.point, -collision.c.normal, 16.0f, true, size, decal ); //ff1.3 - increased distance from 8.0f so flamegrenades project decals
+		}
 	}
 }
 
@@ -2913,7 +2919,7 @@ void idBFGProjectile::Think( void ) {
 		// update beam targets
 		for ( int i = 0; i < beamTargets.Num(); i++ ) {
 			beamTarget_t &beamTarget = beamTargets[i];
-            idEntity *targetEnt = beamTarget.target.GetEntity();
+            //idEntity *targetEnt = beamTarget.target.GetEntity();
 
             if( UpdateBeamTarget(beamTarget, doDamage) ){ //update beam if it's a valid target
                 if ( beamTarget.modelDefHandle == -1 ) { //handle un-hidden targets too
