@@ -75,8 +75,8 @@ const float MIN_BOB_SPEED = 5.0f;
 //ff start
 
 //cursor states
-const int CURSTOR_STATE_HIDDEN		= 0;
-const int CURSTOR_STATE_TALK		= 1;
+const int CURSOR_STATE_HIDDEN	= 0;
+const int CURSOR_STATE_TALK		= 1;
 
 //stamina given by medals
 const int MASSACRE_STAMINA		= 10;
@@ -1927,7 +1927,7 @@ idPlayer::idPlayer() {
 	focusUI					= NULL;
 	focusCharacter			= NULL;
 	focusGameCover			= NULL; //ff1.3
-	talkCursor				= CURSTOR_STATE_HIDDEN;
+	talkCursor				= CURSOR_STATE_HIDDEN;
 	focusVehicle			= NULL;
 	cursor					= NULL;
 
@@ -2176,7 +2176,7 @@ void idPlayer::Init( void ) {
 	focusUI					= NULL;
 	focusCharacter			= NULL;
 	focusGameCover			= NULL; //ff1.3
-	talkCursor				= CURSTOR_STATE_HIDDEN;
+	talkCursor				= CURSOR_STATE_HIDDEN;
 	focusVehicle			= NULL;
 
 	//ff1.3 start
@@ -2301,7 +2301,7 @@ void idPlayer::Init( void ) {
 	//ff1.3 end
 
 	if ( cursor ) {
-		cursor->SetStateInt( "talkcursor", CURSTOR_STATE_HIDDEN );
+		cursor->SetStateInt( "talkcursor", CURSOR_STATE_HIDDEN );
 		cursor->SetStateString( "combatcursor", "1" );
 		cursor->SetStateString( "itemcursor", "0" );
 		cursor->SetStateString( "guicursor", "0" );
@@ -7543,7 +7543,7 @@ void idPlayer::ClearFocus( void ) {
 	focusUI			= NULL;
 	focusVehicle	= NULL;
 	focusGameCover	= NULL; //ff1.3
-	talkCursor		= CURSTOR_STATE_HIDDEN;
+	talkCursor		= CURSOR_STATE_HIDDEN;
 }
 
 /*
@@ -7645,7 +7645,7 @@ void idPlayer::UpdateFocus( void ) {
 						if ( ( trace.fraction < 1.0f ) && ( trace.c.entityNum == ent->entityNumber ) ) {
 							ClearFocus();
 							focusCharacter = static_cast<idAI *>( body );
-							talkCursor = CURSTOR_STATE_TALK;
+							talkCursor = CURSOR_STATE_TALK;
 							focusTime = gameLocal.time + FOCUS_TIME;
 							break;
 						}
@@ -7659,7 +7659,7 @@ void idPlayer::UpdateFocus( void ) {
 						if ( ( trace.fraction < 1.0f ) && ( trace.c.entityNum == ent->entityNumber ) ) {
 							ClearFocus();
 							focusCharacter = static_cast<idAI *>( ent );
-							talkCursor = CURSTOR_STATE_TALK;
+							talkCursor = CURSOR_STATE_TALK;
 							focusTime = gameLocal.time + FOCUS_TIME;
 							break;
 						}
@@ -7690,7 +7690,7 @@ void idPlayer::UpdateFocus( void ) {
 					if ( ( trace.fraction < 1.0f ) && ( trace.c.entityNum == ent->entityNumber ) ) {
 						ClearFocus();
 						focusGameCover = static_cast<idGameCover *>( ent );
-						talkCursor = CURSTOR_STATE_TALK;
+						talkCursor = CURSOR_STATE_TALK;
 						focusTime = gameLocal.time + FOCUS_TIME;
 						break;
 					}
