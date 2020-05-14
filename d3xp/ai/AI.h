@@ -444,6 +444,7 @@ protected:
 #endif
 
 	//ff1.3 start
+	int						lastScriptUpdate;
 	bool					activateTargetsOnDeath;
 	bool					focusPosOnlyInRange; //completely ignore focus position if out of look_min/look_max range
 	bool					helltimeMode;

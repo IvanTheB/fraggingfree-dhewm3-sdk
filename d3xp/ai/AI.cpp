@@ -396,6 +396,7 @@ idAI::idAI() {
 	focusAlignTime		= 0;
 
 	//ff1.3 start
+	lastScriptUpdate			= 0;
 	activateTargetsOnDeath		= true;
 	focusPosOnlyInRange			= false;
 	helltimeMode				= false;
@@ -575,6 +576,7 @@ void idAI::Save( idSaveGame *savefile ) const {
 #endif
 
 	//ff1.3 start
+	//lastScriptUpdate //TODO save? would break compatibility
 	savefile->WriteBool( activateTargetsOnDeath );
 	savefile->WriteBool( focusPosOnlyInRange );
 	savefile->WriteBool( helltimeMode );
@@ -792,6 +794,7 @@ void idAI::Restore( idRestoreGame *savefile ) {
 #endif
 
 	//ff1.3 start
+	lastScriptUpdate = 0;
 	savefile->ReadBool( activateTargetsOnDeath );
 	savefile->ReadBool( focusPosOnlyInRange );
 	savefile->ReadBool( helltimeMode );
@@ -1449,6 +1452,13 @@ idAI::UpdateAIScript
 =====================
 */
 void idAI::UpdateAIScript( void ) {
+	//ff1.3 start - fix script called twice by trigging a trigger having myself as target
+	if ( lastScriptUpdate == gameLocal.time ) {
+		return;
+	}
+	lastScriptUpdate = gameLocal.time;
+	//ff1.3 end
+
 	UpdateScript();
 
 	// clear the hit enemy flag so we catch the next time we hit someone

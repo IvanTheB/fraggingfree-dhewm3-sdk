@@ -4506,6 +4506,12 @@ void idDebris::Launch( void ) {
 	bool		randomVelocity;
 	idMat3		axis;
 
+//ff1.3 start - fix slow debris of fast projectiles
+#ifdef _D3XP
+	SetTimeState ts( timeGroup );
+#endif
+//ff1.3 end
+
 	renderEntity.shaderParms[ SHADERPARM_TIMEOFFSET ] = -MS2SEC( gameLocal.time );
 
 	spawnArgs.GetVector( "velocity", "0 0 0", velocity );
