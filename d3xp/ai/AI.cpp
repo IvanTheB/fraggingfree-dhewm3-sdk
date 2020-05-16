@@ -5440,7 +5440,7 @@ void idAI::UpdateFriendFx( void ){
 	if ( team == 0 ) {
 		idFuncEmitter* emitter = GetEmitter( FRIEND_FX_NAME );
 		if ( emitter ) {
-			if ( emitter->IsEmitterHidden() == health > 0 ) {
+			if ( emitter->IsEmitterHidden() == (health > 0) ) {
 				//gameLocal.Printf("idAI::UpdateFriendFx -> SetEmitterVisible at %d\n", gameLocal.time);
 				//SetEmitterVisible( FRIEND_FX_NAME, health > 0 );
 				emitter->CancelEvents(&EV_Activate); //don't trigger twice this frame
@@ -6524,7 +6524,6 @@ void idAI_Rideable::UnbindDriver( bool driverKilled ){
 
 		//clear enemies
 		idActor *ent;
-		int num = 0;
 		for( ent = enemyList.Next(); ent != NULL; ent = ent->enemyNode.Next() ) {
 			if ( ent->IsType( idAI::Type ) ) {
 				static_cast<idAI*>(ent)->PostEventMS( &AI_ClearEnemy, 0 );

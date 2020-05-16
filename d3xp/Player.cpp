@@ -929,7 +929,7 @@ const char *idInventory::PwPickupNameForWeaponName( const char *weapon_name ) co
 	if ( weaponDict ) {
 		return va( "%s Powerup", common->GetLanguageDict()->GetString( weaponDict->GetString( "inv_name" ) ) );
 	} else {
-		gameLocal.Warning("Invalid weapon name '%d'", weapon_name );
+		gameLocal.Warning("Invalid weapon name '%s'", weapon_name );
 		return "";
 	}
 }
@@ -6410,7 +6410,7 @@ void idPlayer::NextBestWeapon( void ) {
 	weaponSwitchTime = gameLocal.time + WEAPON_SWITCH_DELAY;
 	UpdateHudWeapon();
 }
-
+*/
 //ff1.3 end
 
 /*
@@ -9801,7 +9801,7 @@ void idPlayer::UpdateHud( void ) {
 
 			int i;
 
-			for ( i = 0; i < 5, i < c; i++ ) {
+			for ( i = 0; i < c; i++ ) {
 				if (inventory.nextItemNum == 1 ) {
 					inventory.onePickupTime = gameLocal.time;
 					//gameLocal.Printf("onePickupTime\n");

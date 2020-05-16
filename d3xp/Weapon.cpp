@@ -3507,7 +3507,7 @@ idWeapon::GetAmmoNameForNum
 ================
 */
 const char *idWeapon::GetAmmoNameForNum( ammo_t ammonum ) {
-	int i, j;
+	int i;
 	int num;
 	const idDict *ammoDict;
 	const idKeyValue *kv;

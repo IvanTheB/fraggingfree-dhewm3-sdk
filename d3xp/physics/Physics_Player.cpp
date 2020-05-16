@@ -705,8 +705,7 @@ idPhysics_Player::CanWallDodge
 bool idPhysics_Player::CanWallDodge( void ){
 	trace_t	trace;
 
-	const idVec3 walldir = viewRight * ( command.rightmove < 0 ? 1.0f : -1.0f ); 
-	const idVec3 start = current.origin + idVec3( 0.0f, 0.0f, 5.0f ); //a little Z offset to make sure we don't touch the ground 
+	const idVec3 start = current.origin + idVec3( 0.0f, 0.0f, 5.0f ); //a little Z offset to make sure we don't touch the ground
 	const idVec3 end = start + viewRight * ( (command.rightmove < 0) ? WALLDODGE_MAXDISTANCE : -WALLDODGE_MAXDISTANCE );
 	const idVec3 mins = idVec3( -5.0f, -5.0f, 0.0f ); //Z: don't touch something below
 	const idVec3 maxs = idVec3( 5.0f, 5.0f, 35.0f ); 

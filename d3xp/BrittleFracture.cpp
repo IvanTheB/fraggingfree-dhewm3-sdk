@@ -734,7 +734,7 @@ void idBrittleFracture::ProjectDecal( const idVec3 &point, const idVec3 &dir, co
 	if ( time >= gameLocal.time ) {
 		// try to get the sound from the damage def
 		const idDeclEntityDef *damageDef = NULL;
-		const idSoundShader *sndShader = NULL;
+//		const idSoundShader *sndShader = NULL;
 
 		if ( damageDefName ) {
 			damageDef = gameLocal.FindEntityDef( damageDefName, false );
