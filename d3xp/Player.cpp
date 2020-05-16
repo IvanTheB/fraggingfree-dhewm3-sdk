@@ -9801,7 +9801,7 @@ void idPlayer::UpdateHud( void ) {
 
 			int i;
 
-			for ( i = 0; i < c; i++ ) {
+			for ( i = 0; i < c && i < 5; i++ ) {
 				if (inventory.nextItemNum == 1 ) {
 					inventory.onePickupTime = gameLocal.time;
 					//gameLocal.Printf("onePickupTime\n");
