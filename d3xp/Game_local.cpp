@@ -446,6 +446,7 @@ void idGameLocal::Init( void ) {
 		//We want to run this once after the base doom config file has run so we can
 		//have the correct ff binds
 		cmdSystem->BufferCommandText( CMD_EXEC_APPEND, "exec default.cfg\n" );
+		cmdSystem->BufferCommandText( CMD_EXEC_APPEND, "seta r_scaleMenusTo43 0\n" );
 		cmdSystem->BufferCommandText( CMD_EXEC_APPEND, "seta ff_bind_run_once_v2 1\n" );
 		cmdSystem->ExecuteCommandBuffer();
 	}
