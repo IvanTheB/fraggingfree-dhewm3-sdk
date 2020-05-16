@@ -3566,7 +3566,6 @@ void idAI::Event_StartRiding( idEntity* driver, int checkSkippedTriggers ){
 
 		//clear enemies
 		idActor *ent;
-		int num = 0;
 		for( ent = enemyList.Next(); ent != NULL; ent = ent->enemyNode.Next() ) {
 			if ( ent->IsType( idAI::Type ) ) {
 				static_cast<idAI*>(ent)->PostEventMS( &AI_ClearEnemy, 0 );

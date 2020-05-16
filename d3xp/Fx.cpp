@@ -1539,7 +1539,7 @@ idDamagingFx *idDamagingFx::StartDamagingFx( const char *defName, idEntity *atta
 		if ( victimEnt->spawnArgs.GetString( nfx->spawnArgs.GetString("key_joint"), NULL, &jointName ) ) {
 			StartFxUtility( nfx, NULL, &mat3_identity, victimEnt, true, false, victimEnt->GetAnimator()->GetJointHandle( jointName ) );
 		} else {
-		    const idVec3 fxPos = victimEnt->GetPhysics()->GetAbsBounds().GetCenter();
+			const idVec3 fxPos = victimEnt->GetPhysics()->GetAbsBounds().GetCenter();
 			StartFxUtility( nfx, &fxPos, &mat3_identity, victimEnt, true, false );
 		}
 
