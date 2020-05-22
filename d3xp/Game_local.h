@@ -82,7 +82,6 @@ class idLocationEntity;
 class idSound; //ff1.3
 
 //ff1.3 start
-#define	MUSIC_SOUND_CLASS				2 //0 = default, 1 = teleport snd
 #define RIDEABLE_MODE_SPAWNARG			"rideable_mode"
 #define RIDEABLE_TIMEMODE_SPAWNARG		"rideable_timemode"
 //ff1.3 end
@@ -702,7 +701,6 @@ private:
 	void					UpdateLagometer( int aheadOfServer, int dupeUsercmds );
 
 	void					UpdSelectedMapInfo( idUserInterface *gui ); //ff1.1
-	void					UpdAspectRatio( void );  //ff1.3
 	void					UpdCustomResFromMode( void );  //ff1.3
 
 	//ff1.3 start

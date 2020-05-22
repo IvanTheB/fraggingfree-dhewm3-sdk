@@ -96,8 +96,7 @@ idCVar si_spectators(				"si_spectators",			"1",			CVAR_GAME | CVAR_SERVERINFO |
 idCVar si_serverURL(				"si_serverURL",				"",				CVAR_GAME | CVAR_SERVERINFO | CVAR_ARCHIVE, "where to reach the server admins and get information about the server" );
 
 #ifdef CTF
-//idCVar si_pointLimit(				"si_pointlimit",			"8",			CVAR_GAME | CVAR_SERVERINFO | CVAR_ARCHIVE | CVAR_INTEGER, "team points limit to win in CTF" );idCVar r_aspectRatio( 				"r_aspectRatio",			"0",			CVAR_RENDERER | CVAR_INTEGER | CVAR_ARCHIVE, "aspect ratio of view:\n0 = 4:3\n1 = 16:9\n2 = 16:10\n3 = 5:4", 0, 3 );
-
+//idCVar si_pointLimit(				"si_pointlimit",			"8",			CVAR_GAME | CVAR_SERVERINFO | CVAR_ARCHIVE | CVAR_INTEGER, "team points limit to win in CTF" );
 idCVar si_flagDropTimeLimit(		"si_flagDropTimeLimit",		"30",			CVAR_GAME | CVAR_SERVERINFO | CVAR_ARCHIVE | CVAR_INTEGER, "seconds before a dropped CTF flag is returned" );
 idCVar si_midnight(                 "si_midnight",              "0",            CVAR_GAME | CVAR_INTEGER | CVAR_SERVERINFO, "Start the game up in midnight CTF (completely dark)" );
 #endif
@@ -442,6 +441,5 @@ idCVar ff_bind_run_once_v2(			"ff_bind_run_once_v2",		"0",			CVAR_GAME | CVAR_BO
 idCVar ff_showDifficultyTip(		"ff_showDifficultyTip",		"1",			CVAR_GAME | CVAR_BOOL | CVAR_ARCHIVE, "Main menu difficulty tip" );
 idCVar ff_showTutorialTip(			"ff_showTutorialTip",		"1",			CVAR_GAME | CVAR_BOOL | CVAR_ARCHIVE, "Main menu tutorial tip" );
 idCVar ff_showWeaponOverview(		"ff_showWeaponOverview",	"1",			CVAR_GAME | CVAR_BOOL | CVAR_ARCHIVE, "Show the weapon overview on hud" );
-idCVar ff_autoAspectRatio(			"ff_autoAspectRatio",		"1",			CVAR_GAME | CVAR_BOOL | CVAR_ARCHIVE, "Automatically set r_aspectRatio" );
 idCVar ff_autoSave(					"ff_autoSave",				"1",			CVAR_GAME | CVAR_BOOL | CVAR_ARCHIVE, "Autosave" );
 idCVar ff_rideable_time(			"ff_rideable_time",			"45",			CVAR_GAME | CVAR_INTEGER, "Seconds for rideable AI time mode" );

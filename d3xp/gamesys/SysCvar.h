@@ -326,7 +326,6 @@ extern idCVar ff_bind_run_once_v2;
 extern idCVar ff_showDifficultyTip;
 extern idCVar ff_showTutorialTip;
 extern idCVar ff_showWeaponOverview;
-extern idCVar ff_autoAspectRatio;
 extern idCVar ff_autoSave;
 extern idCVar ff_rideable_time;
 

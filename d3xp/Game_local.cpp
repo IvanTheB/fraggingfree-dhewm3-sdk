@@ -80,8 +80,10 @@ idCVar com_forceGenericSIMD( "com_forceGenericSIMD", "0", CVAR_BOOL|CVAR_SYSTEM,
 
 const float MIN_MUSIC_VOLUME			= -15.0f; //must match the min malue in mainmenu.gui
 const float DISABLED_MUSIC_VOLUME		= -60.0f;
+const int MUSIC_SOUND_CLASS				= 2; //0 = default, 1 = teleport snd
 const int ACTION_MUSIC_END_DELAY		= 1000;
 const int CINEMATIC_AUTOSAVE_INTERVAL	= 30000; //ff1.3
+
 
 idRenderWorld *				gameRenderWorld = NULL;		// all drawing is done to this world
 idSoundWorld *				gameSoundWorld = NULL;		// all audio goes to this world
@@ -446,7 +448,6 @@ void idGameLocal::Init( void ) {
 		//We want to run this once after the base doom config file has run so we can
 		//have the correct ff binds
 		cmdSystem->BufferCommandText( CMD_EXEC_APPEND, "exec default.cfg\n" );
-		cmdSystem->BufferCommandText( CMD_EXEC_APPEND, "seta r_scaleMenusTo43 0\n" );
 		cmdSystem->BufferCommandText( CMD_EXEC_APPEND, "seta ff_bind_run_once_v2 1\n" );
 		cmdSystem->ExecuteCommandBuffer();
 	}
@@ -3058,8 +3059,6 @@ void idGameLocal::HandleMainMenuCommands( const char *menuCommand, idUserInterfa
 
 	if (!idStr::Icmp( menuCommand, "updCustomResFromMode" ) ) {
 		UpdCustomResFromMode();
-	} else if (!idStr::Icmp( menuCommand, "updAspectRatio" ) ) {
-		UpdAspectRatio();
 	} else if (!idStr::Icmp( menuCommand, "showSelectedMap" ) ) {
 		UpdSelectedMapInfo( gui );
 	} else if (!idStr::Icmp( menuCommand, "checkMenuTips" ) ) {
@@ -3077,56 +3076,6 @@ void idGameLocal::HandleMainMenuCommands( const char *menuCommand, idUserInterfa
 		gui->SetStateInt( "skill", g_skill.GetInteger() );
 	}
 	//ff1.3 end
-}
-
-/*
-================
-idGameLocal::UpdAspectRatio
-================
-*/
-void idGameLocal::UpdAspectRatio( void ) {
-	int ratioType;
-	int rMode;
-
-	if( !ff_autoAspectRatio.GetBool() ){
-		return;
-	}
-
-	rMode = cvarSystem->GetCVarInteger( "r_mode" );
-	if( rMode >= 0 ){
-		switch( rMode ) {
-		case 3 :
-		case 4 :
-		case 5 :
-		case 6 :
-		case 8 :
-			ratioType = 0; // 4/3
-			break;
-		case 7 :
-			ratioType = 3; // 5/4
-			break;
-		default:
-			Warning("Could not set r_aspectRatio for r_mode %d", rMode);
-			return;
-		}
-	} else {
-		int width = cvarSystem->GetCVarInteger( "r_customwidth" );
-		int height = cvarSystem->GetCVarInteger( "r_customheight" );
-		float ratio = width / (float) height;
-
-		if ( ratio < 31 / (float) 24 ) {
-			ratioType = 3; // 5/4
-		} else if ( ratio < 88 / (float) 60 ) {
-			ratioType = 0; // 4/3
-		} else if ( ratio < 304 / (float) 180 ) {
-			ratioType = 2; // 16/10
-		} else {
-			ratioType = 1; // 16/9
-		}
-	}
-
-	//gameLocal.Printf("ff_autoAspectRatio enabled -> r_aspectRatio set to %d\n", ratioType);
-	r_aspectRatio.SetInteger(ratioType);
 }
 
 /*
@@ -5771,26 +5720,51 @@ void idGameLocal::ReadStatsFromFile( playerStats_t &playerStats, mapStats_t &map
 	fileSystem->CloseFile( file );
 }
 
+/*
+================
+idGameLocal::StartActionMusic
+================
+*/
 void idGameLocal::StartActionMusic( idSound *newActionMusicEnt, bool autoStop ) {
 	actionMusicAvailable = (newActionMusicEnt != NULL);
 	actionMusicAutoStop = autoStop;
 	StartMusic( actionMusicEntity, newActionMusicEnt, true );
 }
 
+/*
+================
+idGameLocal::StopActionMusic
+================
+*/
 void idGameLocal::StopActionMusic( void ) {
 	StopMusic( actionMusicEntity );
 	actionMusicAvailable = false;
 	actionMusicAutoStop = false;
 }
 
+/*
+================
+idGameLocal::StartAmbientMusic
+================
+*/
 void idGameLocal::StartAmbientMusic( idSound *newAmbientMusicEnt ) {
 	StartMusic( ambientMusicEntity, newAmbientMusicEnt, false );
 }
 
+/*
+================
+idGameLocal::StopAmbientMusic
+================
+*/
 void idGameLocal::StopAmbientMusic( void ) {
 	StopMusic( ambientMusicEntity );
 }
 
+/*
+================
+idGameLocal::LocalPlayerHasEnemies
+================
+*/
 bool idGameLocal::LocalPlayerHasEnemies( void ) {
 	idPlayer *player = GetLocalPlayer();
 	idActor *coopEnemy = lastAICoopEnemy.GetEntity();
@@ -5835,13 +5809,8 @@ void idGameLocal::StopMusic( idEntityPtr<idSound> &musicEntPtr ) {
 	idSound *musicEnt = musicEntPtr.GetEntity();
 	if ( musicEnt ) {
 		musicEnt->PostEventMS(&EV_FadeSound, 0, SCHANNEL_ANY, -60.0f, 20.0f );
-		musicEnt->PostEventSec(&EV_Speaker_Off, 20 );
+		musicEnt->PostEventSec(&EV_Speaker_Off, 20.0f );
 	}
-	/*
-	else {
-		gameLocal.Warning( "There's no music to stop!" );
-	}
-	*/
 	musicEntPtr = NULL;
 }
 
@@ -5855,11 +5824,6 @@ void idGameLocal::FadeMusic( idEntityPtr<idSound> &musicEntPtr, float volume, fl
 	if ( musicEnt ) {
 		musicEnt->PostEventMS(&EV_FadeSound, 0, SCHANNEL_ANY, volume, time );
 	}
-	/*
-	else {
-		gameLocal.Warning( "Invalid music entity!" );
-	}
-	*/
 }
 
 /*
@@ -5869,7 +5833,6 @@ idGameLocal::UpdateMusicVolume
 */
 void idGameLocal::UpdateMusicVolume( void ) {
 	if ( ff_music_volume.IsModified() ) {
-		//Printf("ff_music_volume.IsModified()\n");
 		ff_music_volume.ClearModified();
 		if ( ff_music_volume.GetFloat() > MIN_MUSIC_VOLUME ) {
 			gameSoundWorld->FadeSoundClasses( MUSIC_SOUND_CLASS, ff_music_volume.GetFloat(), 0.0f );
