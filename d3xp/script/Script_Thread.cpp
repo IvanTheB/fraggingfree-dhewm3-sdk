@@ -126,14 +126,11 @@ const idEventDef EV_Thread_DebugBounds( "debugBounds", "vvvf" );
 const idEventDef EV_Thread_DrawText( "drawText", "svfvdf" );
 const idEventDef EV_Thread_InfluenceActive( "influenceActive", NULL, 'd' );
 //ff start
-//const idEventDef EV_Thread_GetShaderVolume( "getShaderVolume", "s", 'f' );
 const idEventDef EV_Thread_CinematicCheckpoint( "cinematicCheckpoint", NULL );
 const idEventDef EV_Thread_InCinematic( "inCinematic", NULL, 'd' );
 const idEventDef EV_Thread_GetCoopEnemy( "getCoopEnemy", NULL, 'e' );
 const idEventDef EV_Thread_SetMusic( "setMusic", "EEd" );
-//const idEventDef EV_Thread_StartActionMusic( "startActionMusic", "Ed" );
 const idEventDef EV_Thread_StopActionMusic( "stopActionMusic", NULL );
-//const idEventDef EV_Thread_StartAmbientMusic( "startAmbientMusic", "E" );
 const idEventDef EV_Thread_StopAmbientMusic( "stopAmbientMusic", NULL );
 const idEventDef EV_Thread_AutoSave( "autoSave", NULL );
 //ff end
@@ -229,14 +226,11 @@ CLASS_DECLARATION( idClass, idThread )
 	EVENT( EV_Thread_DrawText,				idThread::Event_DrawText )
 	EVENT( EV_Thread_InfluenceActive,		idThread::Event_InfluenceActive )
 	//ff start
-	//EVENT( EV_Thread_GetShaderVolume,		idThread::Event_GetShaderVolume )
 	EVENT( EV_Thread_CinematicCheckpoint,	idThread::Event_CinematicCheckpoint )
 	EVENT( EV_Thread_InCinematic,			idThread::Event_InCinematic )
 	EVENT( EV_Thread_GetCoopEnemy,			idThread::Event_GetCoopEnemy )
 	EVENT( EV_Thread_SetMusic,				idThread::Event_SetMusic )
-	//EVENT( EV_Thread_StartActionMusic,		idThread::Event_StartActionMusic )
 	EVENT( EV_Thread_StopActionMusic,		idThread::Event_StopActionMusic )
-	//EVENT( EV_Thread_StartAmbientMusic,		idThread::Event_StartAmbientMusic )
 	EVENT( EV_Thread_StopAmbientMusic,		idThread::Event_StopAmbientMusic )
 	EVENT( EV_Thread_AutoSave,				idThread::Event_AutoSave )
 	//ff end
@@ -1948,27 +1942,6 @@ void idThread::Event_InfluenceActive( void ) {
 }
 
 //ff start
-/*
-================
-idThread::Event_GetShaderVolume
-================
-
-void idThread::Event_GetShaderVolume( const char *sound ) {
-	float shader_volume;
-	const idSoundShader *sndShader;
-	const soundShaderParms_t *shaderParms;
-	
-	sndShader = declManager->FindSound( sound );
-	if ( sndShader ) {
-		shaderParms = sndShader->GetParms();
-		shader_volume = shaderParms->volume;
-	} else {
-		shader_volume = 0.0f;
-	}
-
-	ReturnFloat( shader_volume );
-}
-*/
 
 /*
 ================
@@ -2000,14 +1973,19 @@ void idThread::Event_GetCoopEnemy( void ) {
 
 /*
 ================
-idThread::Event_StartActionMusic
+idThread::Event_SetMusic
 ================
 */
-void idThread::Event_StartActionMusic( idEntity *ent, int autoStop ) {
-	if ( ent && ent->IsType( idSound::Type ) ) {
-		gameLocal.StartActionMusic( static_cast<idSound *>( ent ), (autoStop > 0) );
+void idThread::Event_SetMusic( idEntity *ambientMusic, idEntity *actionMusic, int actionAutoStop ) {
+	if ( ambientMusic && ambientMusic->IsType( idSound::Type ) ) {
+		gameLocal.StartAmbientMusic( static_cast<idSound *>( ambientMusic ) );
 	} else {
-		//gameLocal.Warning("Invalid idSound entity");
+		gameLocal.StopAmbientMusic();
+	}
+
+	if ( actionMusic && actionMusic->IsType( idSound::Type ) ) {
+		gameLocal.StartActionMusic( static_cast<idSound *>( actionMusic ), ( actionAutoStop > 0 ) );
+	} else {
 		gameLocal.StopActionMusic();
 	}
 }
@@ -2019,20 +1997,6 @@ idThread::Event_StopActionMusic
 */
 void idThread::Event_StopActionMusic( void ) {
 	gameLocal.StopActionMusic();
-}
-
-/*
-================
-idThread::Event_StartAmbientMusic
-================
-*/
-void idThread::Event_StartAmbientMusic( idEntity *ent ) {
-	if ( ent && ent->IsType( idSound::Type ) ) {
-		gameLocal.StartAmbientMusic( static_cast<idSound *>( ent ) );
-	} else {
-		//gameLocal.Warning("Invalid idSound entity");
-		gameLocal.StopAmbientMusic();
-	}
 }
 
 /*
@@ -2051,16 +2015,6 @@ idThread::Event_AutoSave
 */
 void idThread::Event_AutoSave( void ) {
 	gameLocal.AutoSave();
-}
-
-/*
-================
-idThread::Event_SetMusic
-================
-*/
-void idThread::Event_SetMusic( idEntity *ambientMusic, idEntity *actionMusic, int actionAutoStop ) {
-	Event_StartAmbientMusic( ambientMusic );
-	Event_StartActionMusic( actionMusic, actionAutoStop );
 }
 
 //ff end

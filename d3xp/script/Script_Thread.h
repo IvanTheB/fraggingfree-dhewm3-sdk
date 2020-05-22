@@ -199,15 +199,11 @@ private:
 	void						Event_DrawText( const char *text, const idVec3 &origin, float scale, const idVec3 &color, const int align, const float lifetime );
 	void						Event_InfluenceActive( void );
 	//ff start
-	//void						Event_GetShaderVolume( const char *sound );
 	void						Event_CinematicCheckpoint( void );
 	void						Event_InCinematic( void );
 	void						Event_GetCoopEnemy( void );
-	
 	void						Event_SetMusic( idEntity *ambientMusic, idEntity *actionMusic, int actionAutoStop );
-	void						Event_StartActionMusic( idEntity *ent, int autoStop );
 	void						Event_StopActionMusic( void );
-	void						Event_StartAmbientMusic( idEntity *ent );
 	void						Event_StopAmbientMusic( void );
 	void						Event_AutoSave( void );
 	//ff end
