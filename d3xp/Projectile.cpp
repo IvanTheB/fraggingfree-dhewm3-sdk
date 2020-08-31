@@ -2523,7 +2523,7 @@ void idSoulCubeMissile::Think( void ) {
 					smokeKillTime = gameLocal.time;
 				}
 			}
-		} else  {
+		} else {
 			if ( accelTime && gameLocal.time < launchTime + accelTime * 1000 ) {
 				pct = ( gameLocal.time - launchTime ) / ( accelTime * 1000 );
 				speed = ( startingVelocity + ( startingVelocity + endingVelocity ) * pct ).Length();

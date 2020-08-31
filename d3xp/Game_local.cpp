@@ -448,6 +448,7 @@ void idGameLocal::Init( void ) {
 		//We want to run this once after the base doom config file has run so we can
 		//have the correct ff binds
 		cmdSystem->BufferCommandText( CMD_EXEC_APPEND, "exec default.cfg\n" );
+		cmdSystem->BufferCommandText( CMD_EXEC_APPEND, "seta g_nightmare 0\n" ); //better here than default.cfg, otherwise users could reset it in the menu.
 		cmdSystem->BufferCommandText( CMD_EXEC_APPEND, "seta ff_bind_run_once_v2 1\n" );
 		cmdSystem->ExecuteCommandBuffer();
 	}
@@ -501,6 +502,25 @@ void idGameLocal::Init( void ) {
 			//get the name
 			//Printf("init map path '%s' found\n", dict->GetString( "path" )); //"ff/stats"
 			mapIndexByName.Set( va("maps/%s.map", dict->GetString( "path" )), i);
+		}
+	}
+
+	//check that dhewm3 >= 1.5.1
+	idStr siVersion = cvarSystem->GetCVarString( "si_version" );
+	if ( siVersion.Length() > 0 && !siVersion.Icmpn( "dhewm3", 6 ) ) {
+		int majorVersion = atoi(siVersion.Mid(7, 1));
+		int minorVersion = atoi(siVersion.Mid(9, 1));
+		int patchVersion = atoi(siVersion.Mid(11, 1));
+
+		bool validMajor = ( majorVersion > 1 || (siVersion.Mid(8, 1) != ".") );
+		if ( !validMajor ) {
+			bool validMinor = ( majorVersion == 1 && ( minorVersion > 5 || (siVersion.Mid(10, 1) != ".") ) );
+			if ( !validMinor ) {
+				bool validPatch = ( majorVersion == 1 && minorVersion == 5 && patchVersion > 0 );
+				if ( !validPatch ) {
+					Error( "At least dhewm3 1.5.1 required, but found: %s", siVersion.c_str() );
+				}
+			}
 		}
 	}
 	//ff1.3 end
