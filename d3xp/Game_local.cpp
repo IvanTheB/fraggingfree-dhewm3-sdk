@@ -506,7 +506,7 @@ void idGameLocal::Init( void ) {
 
 	//check that dhewm3 >= 1.5.1
 	idStr siVersion = cvarSystem->GetCVarString( "si_version" );
-	if ( !siVersion.Icmpn( "dhewm 3 1.4", 11 ) || !siVersion.Icmpn( "dhewm3 1.5.0", 12 ) ) {
+	if ( !siVersion.Cmpn( "dhewm 3 1.4.", 12 ) || !siVersion.Cmpn( "dhewm3 1.5.0", 12 ) ) {
 		Error( "At least dhewm3 1.5.1 required, but found: '%s'", siVersion.c_str() );
 	}
 	//ff1.3 end
